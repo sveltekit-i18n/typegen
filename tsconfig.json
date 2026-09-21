@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "module": "ESNext",
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "sourceMap": false,
+    "strict": true,
+    // Declaration files of build tooling (tsup, vite, vitest) target newer lib
+    // levels than this package; the subject of this gate is our code.
+    "skipLibCheck": true,
+    "target": "es2022",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "allowSyntheticDefaultImports": true
+  },
+  "include": [
+    "./src",
+    "./tests",
+    "./*.js",
+    "./*.ts"
+  ],
+  // The fixtures are apps and type-check subjects, not sources: one is a
+  // SvelteKit project with its own tsconfig, and another holds files that are
+  // SUPPOSED to fail to compile.
+  "exclude": [
+    "./tests/fixtures"
+  ]
+}

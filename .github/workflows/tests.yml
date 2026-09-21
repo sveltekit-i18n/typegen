@@ -1,0 +1,40 @@
+name: Tests
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  pull_request:
+    types: [opened,reopened,synchronize]
+  push:
+    branches:
+      - master
+
+jobs:
+  Tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        # The two maintained LTS lines; engines declares >=22.
+        node-version: [22, 24]
+        # Windows is not a formality here: this package turns paths into
+        # module ids, compares watcher paths against them and writes the
+        # artifact by path, so a separator bug would only ever surface on this
+        # leg.
+        os: [ubuntu-latest, windows-latest, macOS-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm run test
+        env:
+          tests: true

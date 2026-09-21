@@ -1,0 +1,8 @@
+{
+  "title": "Fixture",
+  "greeting": "Ahoj, {{name}}!",
+  "count": "{{count:number}} položek",
+  "choice": "{{gender; male: Odešel; female: Odešla; default: Odešli}}",
+  "bullets": ["První", "Druhá"],
+  "odd key": "Divné"
+}

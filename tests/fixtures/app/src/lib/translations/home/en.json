@@ -1,0 +1,8 @@
+{
+  "title": "Fixture",
+  "greeting": "Hello, {{name}}!",
+  "count": "{{count:number}} items",
+  "choice": "{{gender; male: He; female: She; default: They}} left",
+  "bullets": ["First", "Second"],
+  "odd key": "Weird"
+}
