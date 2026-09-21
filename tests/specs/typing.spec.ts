@@ -14,7 +14,9 @@ const run = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TYPING = resolve(HERE, '../fixtures/typing');
 const SCHEMA = resolve(TYPING, 'schema.d.ts');
-const TSC = resolve(HERE, '../../node_modules/.bin/tsc');
+// The compiler's own entry, run by Node. The `node_modules/.bin` shim is an
+// extensionless shell script on Windows, which `execFile` cannot spawn at all.
+const TSC = resolve(HERE, '../../node_modules/typescript/bin/tsc');
 
 /**
  * The compiler settings a SvelteKit app runs under, except for `skipLibCheck`.
@@ -37,12 +39,18 @@ const OPTIONS = [
 
 const compile = async (...files: string[]): Promise<string> => {
   try {
-    await run(TSC, [...OPTIONS, SCHEMA, ...files.map((file) => resolve(TYPING, file))]);
+    await run(process.execPath, [TSC, ...OPTIONS, SCHEMA, ...files.map((file) => resolve(TYPING, file))]);
 
     return '';
   } catch (failure) {
+    const reported = `${(failure as { stdout?: string }).stdout ?? ''}`.trim();
+
     // `tsc` reports on stdout and exits non-zero, which `execFile` rejects on.
-    return `${(failure as { stdout?: string }).stdout ?? ''}`.trim();
+    // A rejection carrying nothing is the compiler failing to run, and reading
+    // that as a clean compile would pass every case in this file silently.
+    if (!reported) throw failure;
+
+    return reported;
   }
 };
 
