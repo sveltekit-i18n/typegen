@@ -1,6 +1,6 @@
 {
   "name": "@sveltekit-i18n/typegen",
-  "version": "3.0.0",
+  "version": "3.0.0-0",
   "description": "Generates the TranslationSchema type for sveltekit-i18n from an app's own translation files.",
   "type": "module",
   "types": "./dist/index.d.ts",
