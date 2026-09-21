@@ -65,10 +65,10 @@ const report = (collection: Collection, log: Report): boolean => {
 /**
  * Generates the `TranslationSchema` type from the app's own translation files.
  *
- * The key set cannot be read off the catalogues: loaders are functions, `key`
- * prefixes a namespace at runtime and `preprocess` reshapes what lands. So the
- * config is EVALUATED, inside the app's own Vite pipeline, and the keys are
- * read back off the core the app itself would build.
+ * The key set cannot be read off the catalogues: loaders are functions, a
+ * `namespace` prefixes its data at runtime and `preprocess` reshapes what
+ * lands. So the config is EVALUATED, inside the app's own Vite pipeline, and
+ * the keys are read back off the core the app itself would build.
  */
 export const typegen = (options: Options.T): Plugin => {
   const settings = {

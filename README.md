@@ -8,7 +8,7 @@ It runs on `vite build` and regenerates while `vite dev` is running. There is no
 
 ## How it derives the keys
 
-**By running your config, not by globbing your files.** `config.preprocess` decides the shape of the keys that reach `translations`, a `key` prefixes a namespace at load time, and a loader is ordinary JavaScript — one that imports a template literal names no file anything static could read. So the plugin evaluates the config module inside your app's own Vite pipeline (`$lib`, `$env` and every alias resolve), calls the loaders, and reads the keys back off the core your app would have built.
+**By running your config, not by globbing your files.** `config.preprocess` decides the shape of the keys that reach `translations`, a `namespace` prefixes its data at load time, and a loader is ordinary JavaScript — one that imports a template literal names no file anything static could read. So the plugin evaluates the config module inside your app's own Vite pipeline (`$lib`, `$env` and every alias resolve), calls the loaders, and reads the keys back off the core your app would have built.
 
 Payloads come from the other half: the parser's build-time `extractParams`, which reports what a given message text accepts.
 
@@ -33,8 +33,8 @@ import I18n from 'sveltekit-i18n';
 export const config = {
   initLocale: 'en',
   loaders: [
-    { locale: 'en', key: 'home', routes: ['/'], loader: async () => (await import('./en/home.json')).default },
-    { locale: 'cs', key: 'home', routes: ['/'], loader: async () => (await import('./cs/home.json')).default },
+    { locale: 'en', namespace: 'home', routes: ['/'], loader: async () => (await import('./en/home.json')).default },
+    { locale: 'cs', namespace: 'home', routes: ['/'], loader: async () => (await import('./cs/home.json')).default },
   ],
 };
 

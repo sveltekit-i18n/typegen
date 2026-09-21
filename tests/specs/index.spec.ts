@@ -171,7 +171,7 @@ describe('derive', () => {
       config: {
         initLocale: 'en',
         translations: { en: { lang: { en: 'English' } } },
-        loaders: [{ key: 'home', locale: 'en', loader: loader({ title: 'Fixture' }) }],
+        loaders: [{ namespace: 'home', locale: 'en', loader: loader({ title: 'Fixture' }) }],
       },
     });
 
@@ -193,8 +193,8 @@ describe('derive', () => {
         initLocale: 'en',
         translations: { en: { a: '1' } },
         loaders: [
-          { key: 'x', locale: 'en', loader: loader({ b: '2' }) },
-          { key: 'y', locale: 'en', loader: loader({ c: '3' }) },
+          { namespace: 'x', locale: 'en', loader: loader({ b: '2' }) },
+          { namespace: 'y', locale: 'en', loader: loader({ c: '3' }) },
         ],
       },
     });
@@ -202,12 +202,33 @@ describe('derive', () => {
     expect(probe.calls).toEqual([{ en: { a: '1' } }, { en: { x: { b: '2' }, y: { c: '3' } } }]);
   });
 
+  it('reads the namespace under the deprecated `key` as well', async () => {
+    // The peer range spans cores that accept either name, so a descriptor
+    // written the old way has to land under the same namespace.
+    const probe = probeFactory();
+
+    await derive({
+      probe,
+      sanitizeLocales,
+      extract: null,
+      config: {
+        initLocale: 'en',
+        loaders: [
+          { namespace: 'current', locale: 'en', loader: loader({ a: '1' }) },
+          { key: 'legacy', locale: 'en', loader: loader({ b: '2' }) },
+        ],
+      },
+    });
+
+    expect(probe.calls).toEqual([{ en: { current: { a: '1' }, legacy: { b: '2' } } }]);
+  });
+
   it('ignores route scoping so every namespace contributes', async () => {
     // A route-scoped loader carries keys the app reaches on SOME route, and the
     // schema has to describe all of them.
     const seen: unknown[] = [];
     const scoped = (routes: unknown) => ({
-      key: 'deep',
+      namespace: 'deep',
       locale: 'en',
       routes,
       loader: async (props: unknown) => {
@@ -252,7 +273,7 @@ describe('derive', () => {
       config: {
         initLocale: 'en',
         translations: { en: { a: '1' } },
-        loaders: [{ key: 'hangs', locale: 'en', loader: () => new Promise(() => {}) }],
+        loaders: [{ namespace: 'hangs', locale: 'en', loader: () => new Promise(() => {}) }],
       },
     });
 
@@ -271,7 +292,7 @@ describe('derive', () => {
       config: {
         initLocale: 'en',
         loaders: ['en', 'cs'].map((locale) => ({
-          key: 'home',
+          namespace: 'home',
           locale,
           loader: async () => {
             ran.push(locale);
@@ -296,8 +317,8 @@ describe('derive', () => {
       config: {
         initLocale: 'en',
         loaders: [
-          { key: 'ok', locale: 'en', loader: loader({ a: '1' }) },
-          { key: 'bad', locale: 'en', loader: async () => { throw new Error('boom'); } },
+          { namespace: 'ok', locale: 'en', loader: loader({ a: '1' }) },
+          { namespace: 'bad', locale: 'en', loader: async () => { throw new Error('boom'); } },
         ],
       },
     });
@@ -316,8 +337,8 @@ describe('derive', () => {
       config: {
         initLocale: 'en',
         loaders: [
-          { key: 'home', locale: 'en', loader: loader({ nested: { a: '1' } }) },
-          { key: 'home', locale: 'en', loader: loader({ nested: { b: '2' } }) },
+          { namespace: 'home', locale: 'en', loader: loader({ nested: { a: '1' } }) },
+          { namespace: 'home', locale: 'en', loader: loader({ nested: { b: '2' } }) },
         ],
       },
     });
@@ -331,7 +352,7 @@ describe('derive', () => {
     expect(await run({ initLocale: 'cs', fallbackLocale: 'en', translations: { de: {} } })).toBe('cs');
     expect(await run({ fallbackLocale: 'en', translations: { de: {} } })).toBe('en');
     expect(await run({ translations: { de: { a: '1' } } })).toBe('de');
-    expect(await run({ loaders: [{ key: 'x', locale: 'sk', loader: loader({ a: '1' }) }] })).toBe('sk');
+    expect(await run({ loaders: [{ namespace: 'x', locale: 'sk', loader: loader({ a: '1' }) }] })).toBe('sk');
   });
 
   it('answers a diagnostic rather than a guess when no locale is named', async () => {
@@ -346,7 +367,7 @@ describe('derive', () => {
       probe: probeFactory(),
       sanitizeLocales,
       extract: null,
-      config: { initLocale: 'en', sanitizeLocales: sanitize, loaders: [{ key: 'x', locale: 'en', loader: loader({ a: '1' }) }] },
+      config: { initLocale: 'en', sanitizeLocales: sanitize, loaders: [{ namespace: 'x', locale: 'en', loader: loader({ a: '1' }) }] },
     }));
 
     expect((await upper((locale: string) => locale.toUpperCase())).referenceLocale).toBe('EN');
@@ -392,7 +413,7 @@ describe('derive', () => {
       config: {
         initLocale: 'en',
         translations: { en: { a: '1' } },
-        loaders: [hostile, { key: 'x', locale: 'en', loader: loader({ b: '2' }) }],
+        loaders: [hostile, { namespace: 'x', locale: 'en', loader: loader({ b: '2' }) }],
       },
     });
 

@@ -2,7 +2,9 @@ import type { Parser } from '@sveltekit-i18n/base';
 
 import type { Collection, Diagnostic, Entry } from './types.js';
 
-type Loader = { key?: string; locale?: string; routes?: unknown; loader?: (props: { locale: string; route: string }) => unknown };
+type Descriptor = { namespace?: string; key?: string; locale?: string; routes?: unknown; loader?: (props: { locale: string; route: string }) => unknown };
+
+type Loader = Omit<Descriptor, 'key'>;
 
 type Config = {
   loaders?: readonly unknown[];
@@ -82,13 +84,14 @@ const merge = (target: unknown, source: unknown): unknown => {
 };
 
 // Loader properties are consumer code and an accessor may throw, so each
-// descriptor is materialized on its own.
+// descriptor is materialized on its own. The core accepts the namespace under
+// either name, so both are read here and only one leaves.
 const readLoaders = (input: readonly unknown[] = []): Loader[] => (
   input.reduce<Loader[]>((acc, descriptor) => {
     try {
-      const { key, locale, routes, loader } = descriptor as Loader;
+      const { namespace, key, locale, routes, loader } = descriptor as Descriptor;
 
-      return [...acc, { key, locale, routes, loader }];
+      return [...acc, { namespace: namespace ?? key, locale, routes, loader }];
     } catch {
       return acc;
     }
@@ -218,7 +221,7 @@ export const derive = async ({
   const failures = loaded.reduce<Diagnostic.T[]>((acc, { descriptor, failure }) => (
     failure ? [...acc, {
       code: 'loader-threw' as const,
-      message: `The '${descriptor.locale}' > '${descriptor.key}' loader threw, so its keys are missing.`,
+      message: `The '${descriptor.locale}' > '${descriptor.namespace}' loader threw, so its keys are missing.`,
       cause: failure.cause,
     }] : acc
   ), []);
@@ -231,11 +234,11 @@ export const derive = async ({
   const batch = loaded.reduce<Record<string, unknown>>((acc, { descriptor, data }) => {
     if (!data) return acc;
 
-    const { key } = descriptor;
+    const { namespace } = descriptor;
 
-    if (!key) return merge(acc, data) as Record<string, unknown>;
+    if (!namespace) return merge(acc, data) as Record<string, unknown>;
 
-    return { ...acc, [key]: Object.hasOwn(acc, key) ? merge(acc[key], data) : data };
+    return { ...acc, [namespace]: Object.hasOwn(acc, namespace) ? merge(acc[namespace], data) : data };
   }, {});
 
   if (Object.keys(batch).length) probe.addTranslations({ [reference]: batch });
