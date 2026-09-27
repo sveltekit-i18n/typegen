@@ -403,6 +403,28 @@ describe('derive', () => {
     expect((await upper(false)).referenceLocale).toBe('en');
   });
 
+  it('files the static table under the locales sanitized once', async () => {
+    // The probe sanitizes nothing, since a second pass of a custom
+    // `sanitizeLocales` need not be a no-op: every table reaches it filed
+    // where the core files it.
+    const probe = probeFactory();
+    const collection = await derive({
+      probe,
+      sanitizeLocales,
+      extract: null,
+      config: {
+        initLocale: 'en',
+        sanitizeLocales: (locale: string) => ({ en: 'en-US' } as Record<string, string>)[locale] ?? locale.toLowerCase(),
+        translations: { en: { lang: { en: 'English' } } },
+        loaders: [{ namespace: 'home', locale: 'en', loader: loader({ title: 'x' }) }],
+      },
+    });
+
+    expect(collection.referenceLocale).toBe('en-US');
+    expect(Object.keys(probe.translations)).toEqual(['en-US']);
+    expect(collection.entries.map(({ key }) => key).sort()).toEqual(['home.title', 'lang.en']);
+  });
+
   it('keeps a key whose message the extractor cannot read', async () => {
     const collection = await derive({
       probe: probeFactory(),
@@ -659,6 +681,20 @@ describe('derive', () => {
       });
 
       expect(collection.entries.map(({ key }) => key)).toEqual(['undefined.title']);
+    });
+
+    it('sanitizes a loader\'s locale once, as 3.1 loads it', async () => {
+      // 3.0 sanitizes the requested locale a second time, so under a custom
+      // `sanitizeLocales` that changes its own output it never runs this
+      // loader; the schema types what the config states instead.
+      const collection = await run({
+        initLocale: 'en',
+        sanitizeLocales: (locale: string) => ({ en: 'en-US' } as Record<string, string>)[locale] ?? locale.toLowerCase(),
+        loaders: [{ key: 'home', locale: 'en', loader: loader({ title: 'x' }) }],
+      });
+
+      expect(collection.referenceLocale).toBe('en-US');
+      expect(collection.entries.map(({ key }) => key)).toEqual(['home.title']);
     });
   });
 });

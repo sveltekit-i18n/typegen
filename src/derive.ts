@@ -29,8 +29,8 @@ export type Probe = {
 export type DeriveInput = {
   /**
    * Built by the caller from the APP's own copy of the core, carrying the
-   * config's `preprocess` and `sanitizeLocales` and nothing else — the key set
-   * has to be the one the app's version produces, not this package's.
+   * config's `preprocess` — the key set has to be the one the app's version
+   * produces, not this package's — and sanitizing no locale.
    */
   probe: Probe;
   /** What the config module carried, which may be nothing at all. */
@@ -168,6 +168,16 @@ const pickReference = (config: Config, loaders: readonly Loader[], sanitize: (lo
   return loaders[0]?.locale;
 };
 
+// Files each seeded locale under its sanitized name, merging the namespaces of
+// two that meet there, as the core files a config's static table.
+const sanitizeKeys = (translations: Record<string, unknown>, sanitize: (locale: string) => string): Record<string, unknown> => (
+  Object.keys(translations).reduce<Record<string, unknown>>((acc, locale) => {
+    const sanitized = sanitize(locale);
+
+    return { ...acc, [sanitized]: { ...acc[sanitized] as object, ...translations[locale] as object } };
+  }, {})
+);
+
 // A namespace may be a Symbol, which a template literal refuses to interpolate.
 const loaderName = ({ locale, namespace }: Loader): string => `'${locale}' > '${String(namespace)}'`;
 
@@ -237,8 +247,8 @@ export const derive = async ({
   }
 
   // The core's constructor applies a config's static table in one call of its
-  // own, before any load.
-  if (config.translations) probe.addTranslations(config.translations);
+  // own, before any load, under the locales sanitized once.
+  if (config.translations) probe.addTranslations(sanitizeKeys(config.translations, sanitize));
 
   const callable = loaders.filter(({ loader }) => typeof loader === 'function');
 

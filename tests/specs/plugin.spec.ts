@@ -217,6 +217,15 @@ describe('a build that cannot derive the keys', () => {
     expect(await artifact()).toContain("'about.title': any;");
   });
 
+  it('reads the tables where a custom sanitizeLocales files them', async () => {
+    const output = await build({ configExport: 'sanitized' });
+
+    expect(output).not.toContain('[no-keys]');
+    expect(await artifact()).toContain('Reference locale: en-US');
+    expect(await artifact()).toContain("'home.title': any;");
+    expect(await artifact()).toContain("'lang.en': any;");
+  });
+
   it('degrades to keys only when the extractor cannot be read', async () => {
     const output = await build({ extractParams: { from: 'sveltekit-i18n', name: 'notThere' } });
 
