@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
-import { readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -28,8 +29,8 @@ const invoke = (payload: Record<string, unknown>): string[] => [RUNNER, JSON.str
  * plugins, which keep module-level state — two builds in one process would not
  * be independent, and the outer build is half of what is being asserted.
  */
-const build = async (options: Record<string, unknown> = {}): Promise<string> => {
-  const { stdout, stderr } = await run(process.execPath, invoke({ mode: 'build', ...CONFIG, ...options }));
+const build = async (options: Record<string, unknown> = {}, env: Record<string, string> = {}): Promise<string> => {
+  const { stdout, stderr } = await run(process.execPath, invoke({ mode: 'build', ...CONFIG, ...options }), { env: { ...process.env, ...env } });
 
   return `${stdout}\n${stderr}`;
 };
@@ -149,6 +150,20 @@ describe('a production build', () => {
     await build({ enabled: false });
 
     expect(await missing()).toBe(true);
+  });
+
+  it('collects once per build of an app that carries it in its config file', async () => {
+    // SvelteKit loads the config file again for its client build, nested in
+    // the server build, which builds a second instance of the plugin.
+    const marks = resolve(await mkdtemp(resolve(tmpdir(), 'typegen-')), 'marks');
+
+    try {
+      await build({ configFile: 'vite.typegen.config.js', config: 'src/lib/counted.js' }, { TYPEGEN_COUNT: marks });
+
+      expect(await readFile(marks, 'utf8')).toBe('x');
+    } finally {
+      await rm(dirname(marks), { recursive: true, force: true });
+    }
   });
 
   it('rewrites nothing when the catalogues have not changed', async () => {

@@ -1,3 +1,5 @@
+import { resolve } from 'node:path';
+
 import { build, createServer } from 'vite';
 
 import typegen from '../../dist/index.js';
@@ -8,14 +10,18 @@ import typegen from '../../dist/index.js';
 // process are not independent — and the plugin's whole job happens inside a
 // nested pipeline of exactly those plugins. A spec therefore spawns this
 // script per case and reads the result off the filesystem and this output.
-const { mode, root, ...options } = JSON.parse(process.argv[2]);
+const { mode, root, configFile, ...options } = JSON.parse(process.argv[2]);
 
 // SvelteKit reads `svelte.config.js` and the app template off the working
 // directory rather than off Vite's root, so the app has to be entered the way
 // its own scripts enter it.
 process.chdir(root);
 
-const plugins = [typegen(options)];
+// A config file carries the plugin itself, as an app's does; it reads the
+// options off the environment.
+process.env.TYPEGEN_OPTIONS = JSON.stringify(options);
+
+const plugins = configFile ? [] : [typegen(options)];
 
 if (mode === 'serve') {
   const server = await createServer({ root, plugins, logLevel: 'warn', server: { middlewareMode: true } });
@@ -24,5 +30,5 @@ if (mode === 'serve') {
 
   console.log('ready');
 } else {
-  await build({ root, plugins, logLevel: 'warn' });
+  await build({ root, plugins, logLevel: 'warn', ...(configFile ? { configFile: resolve(root, configFile) } : {}) });
 }

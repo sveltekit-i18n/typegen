@@ -101,6 +101,14 @@ Issues for this repo live in the `lib` tracker.
   host runtime with `$state` undefined — through `sveltekit-i18n` too.
   Externalized `esm-env` makes `$app/environment.dev` `undefined` rather than a
   boolean, which a config branching on it reads as production by accident.
+- **One build collects once.** SvelteKit builds its client inside the server
+  build, from the config file loaded again, so a second instance of the plugin
+  starts while the first build is open. The artifact being generated is held
+  in a registry on `globalThis` (the module itself can load twice) from
+  `buildStart` until the claiming build's `closeBundle` (ordered `pre`, so
+  another plugin's failing one cannot skip it), its `buildEnd` with an error or
+  its watcher's next change, so the next build — a watcher's round, a
+  programmatic one — generates again.
 - **`NODE_ENV` is stated for the call and put back.** `runnerImport` always
   resolves as `serve`, so a config branching on `dev` would hand a production
   build the development key set — and `runnerImport` rewrites the host's

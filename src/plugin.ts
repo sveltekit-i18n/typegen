@@ -48,8 +48,17 @@ const explain = (cause: unknown): string => {
 // One build resolves its config once and starts an environment per target, so
 // `buildStart` arrives more than once for the same work. Keyed by the config
 // object rather than by a flag, so a second build in the same process — a
-// watcher rebuild, a programmatic one — generates again.
+// programmatic one — generates again; a watcher's next round keeps the config
+// and clears its entry instead.
 const generated = new WeakSet<ResolvedConfig>();
+
+// The artifacts a build is generating. SvelteKit builds its client inside the
+// server build, from the config file loaded again, so a second instance of the
+// plugin starts while the first one's build is still open. Held on the global
+// because loading the config file again can load this module again too.
+const REGISTRY = Symbol.for('sveltekit-i18n-typegen:building');
+
+const building = ((globalThis as Record<symbol, unknown>)[REGISTRY] ??= new Set<string>()) as Set<string>;
 
 type Report = (severity: Diagnostic.Severity, message: string, cause?: unknown) => void;
 
@@ -81,6 +90,15 @@ export const typegen = (options: Options.T): Plugin => {
 
   let resolved: ResolvedConfig;
   let outFile: string;
+  let claimed = false;
+
+  // Released once the claiming build is over, so the next one generates again.
+  const release = (): void => {
+    if (!claimed) return;
+
+    building.delete(outFile);
+    claimed = false;
+  };
 
   const generate = async (log: Report): Promise<string[]> => {
     // Written before anything that can throw. An empty interface degrades to
@@ -116,9 +134,11 @@ export const typegen = (options: Options.T): Plugin => {
     },
 
     async buildStart() {
-      if (!settings.enabled || resolved.command !== 'build' || generated.has(resolved)) return;
+      if (!settings.enabled || resolved.command !== 'build' || generated.has(resolved) || building.has(outFile)) return;
 
       generated.add(resolved);
+      building.add(outFile);
+      claimed = true;
 
       // Reported, never thrown. The artifact is types: a build that cannot be
       // typed still deploys, and the placeholder keeps the project compiling.
@@ -128,6 +148,23 @@ export const typegen = (options: Options.T): Plugin => {
         this.warn(cause === undefined ? message : `${message}\n${explain(cause)}`);
       });
     },
+
+    buildEnd(error) {
+      if (error) release();
+    },
+
+    // Ahead of the other plugins' `closeBundle`: one that throws, an adapter
+    // failing, stops the ones after it.
+    closeBundle: { order: 'pre', handler: release },
+
+    // The watcher's next change starts the next round, on the same config; a
+    // round that failed while writing its bundle never closed it.
+    watchChange() {
+      generated.delete(resolved);
+      release();
+    },
+
+    closeWatcher: release,
 
     async configureServer(server) {
       if (!settings.enabled) return;

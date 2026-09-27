@@ -1,10 +1,25 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+
 import { resolveLoaders } from '@sveltekit-i18n/base/utils';
-import { describe, expect, it } from 'vitest';
+import { build } from 'vite';
+import type { Plugin } from 'vite';
+import { describe, expect, it, vi } from 'vitest';
+
+import { collect } from '../../src/collect.js';
 
 import { derive as deriveWith } from '../../src/derive.js';
 import type { DeriveInput } from '../../src/derive.js';
 import { emit, placeholder } from '../../src/emit.js';
+import { typegen } from '../../src/plugin.js';
 import type { Entry } from '../../src/types.js';
+
+// The plugin's own bookkeeping is driven in process; the collection it starts
+// is a real Vite pipeline, which `plugin.spec.ts` covers.
+vi.mock('../../src/collect.js', () => ({
+  collect: vi.fn(async () => ({ collection: { entries: [], referenceLocale: 'en', diagnostics: [] }, dependencies: [] })),
+}));
 
 const entry = (key: string, value: unknown, params: Entry['params'] = []): Entry => ({ key, value, params });
 
@@ -833,5 +848,77 @@ describe('derive', () => {
       expect(collection.referenceLocale).toBe('en-US');
       expect(collection.entries.map(({ key }) => key)).toEqual(['home.title']);
     });
+  });
+});
+
+describe('the build claim', () => {
+  type Hook = (...args: unknown[]) => unknown;
+
+  const call = (plugin: ReturnType<typeof typegen>, name: string, ...args: unknown[]) => {
+    const hook = plugin[name as keyof typeof plugin] as Hook | { handler: Hook } | undefined;
+
+    return (typeof hook === 'object' ? hook.handler : hook)?.call({ warn: () => {} }, ...args);
+  };
+
+  const instance = (root: string) => {
+    const plugin = typegen({ config: 'src/i18n.js', outFile: 'schema.d.ts' });
+
+    call(plugin, 'configResolved', { root, command: 'build' });
+
+    return plugin;
+  };
+
+  it('lets the next round of a watcher generate after one that never closed its bundle', async () => {
+    const root = await mkdtemp(resolve(tmpdir(), 'typegen-'));
+
+    vi.mocked(collect).mockClear();
+
+    try {
+      const outer = instance(root);
+
+      await call(outer, 'buildStart');
+      // SvelteKit's client build, from the config file loaded again.
+      await call(instance(root), 'buildStart');
+
+      expect(collect).toHaveBeenCalledTimes(1);
+
+      // The round failed while writing its bundle, so no `closeBundle`; the
+      // watcher answers the next change with a new round, run by the same
+      // instance on the same resolved config.
+      call(outer, 'watchChange', resolve(root, 'src/i18n.js'), { event: 'update' });
+
+      await call(outer, 'buildStart');
+
+      expect(collect).toHaveBeenCalledTimes(2);
+
+      await call(outer, 'closeBundle');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('lets the next build generate after a plugin before it failed to close its bundle', async () => {
+    const root = await mkdtemp(resolve(tmpdir(), 'typegen-'));
+    // An adapter, run by the plugin listed before this one, that fails.
+    const adapter: Plugin = { name: 'adapter', closeBundle: () => { throw new Error('Adapter failed.'); } };
+    const once = () => build({
+      root,
+      logLevel: 'silent',
+      configFile: false,
+      plugins: [adapter, typegen({ config: 'src/i18n.js', outFile: 'schema.d.ts' })],
+      build: { lib: { entry: 'main.js', formats: ['es'] }, write: false },
+    }).catch(() => undefined);
+
+    vi.mocked(collect).mockClear();
+
+    try {
+      await writeFile(resolve(root, 'main.js'), 'export default 1;\n', 'utf8');
+      await once();
+      await once();
+
+      expect(collect).toHaveBeenCalledTimes(2);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
