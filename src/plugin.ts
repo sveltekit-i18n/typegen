@@ -19,6 +19,7 @@ const DEFAULT_OUT_FILE = 'src/i18n-schema.d.ts';
 const ERRORS = new Set<Diagnostic.Code>([
   'config-unreadable',
   'config-export-missing',
+  'core-too-old',
   'reference-locale-missing',
   'loader-threw',
   'no-keys',

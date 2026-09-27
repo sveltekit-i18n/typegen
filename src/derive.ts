@@ -116,6 +116,19 @@ const readLoaders = (input: readonly unknown[] = [], sanitize: (locale: string) 
   }, [])
 );
 
+// A descriptor only a 3.1 core reads: a 3.0 one files a `namespace` under
+// 'undefined' and an array of locales under no locale it serves, so the types
+// would name keys the app does not have.
+const spelledFor31 = (descriptor: unknown): boolean => {
+  try {
+    const { namespace, locale } = descriptor as Descriptor & { locale?: unknown };
+
+    return namespace !== undefined || Array.isArray(locale);
+  } catch {
+    return false;
+  }
+};
+
 /**
  * The route a loader is called with.
  *
@@ -213,6 +226,7 @@ export const derive = async ({
   configExports,
   sanitizeLocales,
   resolveLoaders,
+  coreLocation,
   checkLocales = true,
   extract,
   extractorFailure,
@@ -235,6 +249,19 @@ export const derive = async ({
   const missingExtractor: Diagnostic.T[] = extractorFailure
     ? [{ code: 'extractor-unreadable', message: `${extractorFailure.message} Payloads stay unchecked.`, cause: extractorFailure.cause }]
     : [];
+
+  const tooNew = resolveLoaders ? 0 : (config.loaders ?? []).filter(spelledFor31).length;
+
+  if (tooNew) {
+    return {
+      entries: [],
+      referenceLocale: referenceLocale ?? '',
+      diagnostics: [...missingExtractor, {
+        code: 'core-too-old',
+        message: `${tooNew === 1 ? 'A loader names' : `${tooNew} loaders name`} a \`namespace\` or an array of locales, which the core${coreLocation ? ` at ${coreLocation}` : ''} does not read: it is 3.0, and the app runs on it. Install sveltekit-i18n or @sveltekit-i18n/base 3.1.`,
+      }],
+    };
+  }
 
   const sanitize = sanitizerFor(config, sanitizeLocales);
   const loaders = resolveLoaders ? resolveLoaders(config.loaders, config.sanitizeLocales) : readLoaders(config.loaders, sanitize);

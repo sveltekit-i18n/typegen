@@ -14,6 +14,7 @@ export namespace Diagnostic {
   export type Code =
     | 'config-unreadable'
     | 'config-export-missing'
+    | 'core-too-old'
     | 'reference-locale-missing'
     | 'loader-threw'
     | 'no-keys'

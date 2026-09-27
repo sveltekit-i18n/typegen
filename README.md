@@ -164,6 +164,7 @@ A failed generation is reported, never thrown: the artifact is types, and a buil
 |------|---------|--------|
 | `config-unreadable` | the config could not be read: its module failed to import, or `preprocess` threw on a `config.translations` seed or on the reference locale's catalogue | nothing is written |
 | `config-export-missing` | the module carries no such export | nothing is written |
+| `core-too-old` | a loader names a `namespace` or an array of locales, which the 3.0 core the config runs on does not read (the message says where that core was found) | nothing is written |
 | `reference-locale-missing` | the config names no locale to derive from | nothing is written |
 | `loader-threw` | a loader failed, so its keys are missing | nothing is written |
 | `no-keys` | the reference locale's catalogue came back empty | nothing is written |

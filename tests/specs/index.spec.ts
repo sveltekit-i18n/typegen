@@ -677,10 +677,28 @@ describe('derive', () => {
     it('keys a loader without `key` under \'undefined\', as that core does', async () => {
       const collection = await run({
         initLocale: 'en',
-        loaders: [{ namespace: 'home', locale: 'en', loader: loader({ title: 'x' }) }],
+        loaders: [{ locale: 'en', loader: loader({ title: 'x' }) }],
       });
 
       expect(collection.entries.map(({ key }) => key)).toEqual(['undefined.title']);
+    });
+
+    it.each([
+      ['a `namespace`', { namespace: 'home', locale: 'en' }],
+      ['an array of locales', { key: 'home', locale: ['en', 'cs'] }],
+    ])('refuses a loader spelled for 3.1, with %s, and names the core it found', async (_, descriptor) => {
+      const collection = await derive({
+        probe: probeFactory(),
+        sanitizeLocales,
+        resolveLoaders: undefined,
+        coreLocation: '/app/node_modules/@sveltekit-i18n/base/dist/index.js',
+        extract: null,
+        config: { initLocale: 'en', loaders: [{ ...descriptor, loader: loader({ title: 'x' }) }] },
+      });
+
+      expect(collection.entries).toEqual([]);
+      expect(collection.diagnostics.map(({ code }) => code)).toEqual(['core-too-old']);
+      expect(collection.diagnostics[0].message).toContain('/app/node_modules/@sveltekit-i18n/base/dist/index.js');
     });
 
     it('sanitizes a loader\'s locale once, as 3.1 loads it', async () => {
