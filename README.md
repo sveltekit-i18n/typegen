@@ -112,11 +112,17 @@ typegen({
 
 ### `referenceLocale`
 
-The locale whose catalogue defines the key set. Defaults to the config's `initLocale`, then its `fallbackLocale`, then the first locale it names. One catalogue is the source of truth; the others are not unioned in.
+The locale whose catalogue defines the key set. Defaults to the config's `initLocale`, then its `fallbackLocale`, then the first locale it names. One catalogue is the source of truth; the others are not unioned in, but compared with it (see [`checkLocales`](#checklocales)).
 
 ### `outFile`
 
 Where to write, relative to the Vite root. Defaults to `src/i18n-schema.d.ts`. It has to sit under `src/` — that is the only place SvelteKit's generated `tsconfig.json` picks a `.d.ts` up without the app being edited, and `.svelte-kit` is wiped by `svelte-kit sync`.
+
+### `checkLocales`
+
+Whether the other locales' loaders run too, so their keys can be compared with the reference locale's. Defaults to `true`. What the comparison finds is a warning — `key-missing`, `key-extra` or `locale-unchecked` below — and the schema is written all the same.
+
+Turn it off when each locale costs a request of its own (a remote loader is then called once per build instead of once per locale), or when a locale is kept partial on purpose behind `fallbackLocale`. Only the reference locale's catalogues are then watched in `vite dev`.
 
 ### `enabled`
 
@@ -156,19 +162,23 @@ A failed generation is reported, never thrown: the artifact is types, and a buil
 
 | Code | Meaning | Effect |
 |------|---------|--------|
-| `config-unreadable` | the config module could not be imported | nothing is written |
+| `config-unreadable` | the config could not be read: its module failed to import, or `preprocess` threw on a `config.translations` seed or on the reference locale's catalogue | nothing is written |
 | `config-export-missing` | the module carries no such export | nothing is written |
 | `reference-locale-missing` | the config names no locale to derive from | nothing is written |
 | `loader-threw` | a loader failed, so its keys are missing | nothing is written |
 | `no-keys` | the reference locale's catalogue came back empty | nothing is written |
 | `extractor-unreadable` | `extractParams` did not resolve to a factory | keys only, payloads `any` |
 | `extractor-threw` | one message could not be read | that key's payload is `any` |
+| `key-missing` | another locale lacks keys the reference has (the message says how many of them render from `fallbackLocale`) | warning, the schema is written |
+| `key-extra` | another locale has keys the reference lacks, so no type names them | warning, the schema is written |
+| `locale-unchecked` | another locale's loader failed, or its catalogue could not be applied (its `preprocess` threw), so that locale was not compared | warning, the schema is written |
 
-A loader that never settles is treated as one that threw, after thirty seconds. The core swallows a throwing loader to keep a page rendering; this package does not, because a key set silently short of the real one makes the types lie.
+A loader that never settles is treated as one that threw, after thirty seconds; every locale's loaders run at once, so that is the longest a generation waits. A message names the first ten keys it is about. The core swallows a throwing loader to keep a page rendering; this package does not, because a key set silently short of the real one makes the types lie.
 
 ## Limits
 
-- **One reference locale.** Keys present only in another locale are not in the schema, and no diagnostic reports them.
+- **One reference locale.** Keys present only in another locale are not in the schema; `key-extra` reports them.
+- **The comparison reads the keys the core holds**, after `preprocess`. Under the default `'full'` an array is one key per item, so an array of another length is reported; under `'preserveArrays'` or `'none'` the comparison is coarser. A locale only seeded through `config.translations` is not compared: seeds are often the same table in every locale.
 - **Route scoping is bypassed.** Every loader runs, so the schema covers every route, and each is handed its own first `routes` entry (or `/` when the entry is a pattern) and empty `params`. A loader that derives its *keys* from the route it is given cannot be typed by any single choice.
 - **A grouping-dependent `preprocess` is out of contract.** The loaders are applied in one batch, as a single visit to every route would have produced. A custom `preprocess` that looks only at the leaf it is handed sees exactly what your app hands it; one whose output depends on the sibling namespaces in the same batch is decided by how the batch was grouped, and no grouping reproduces every route an app can take.
 - **JavaScript apps need `// @ts-check`** (or `checkJs`) for `tsc` to report anything — SvelteKit's generated config allows JavaScript without checking it.

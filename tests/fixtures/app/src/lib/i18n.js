@@ -38,6 +38,16 @@ export const throwing = {
 
 export const nameless = { loaders: [] };
 
+export const partial = {
+  initLocale: 'en',
+  loaders: [descriptor('home', 'en'), { namespace: 'home', locale: 'cs', loader: async () => ({ title: 'Fixture', extra: 'Navíc' }) }],
+};
+
+export const unchecked = {
+  ...config,
+  loaders: [...config.loaders, { namespace: 'gone', locale: 'cs', loader: async () => { throw new Error('the catalogue is gone'); } }],
+};
+
 export const listed = {
   initLocale: 'en',
   loaders: [{

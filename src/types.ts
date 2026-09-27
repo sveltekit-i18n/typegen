@@ -6,6 +6,10 @@ export namespace Diagnostic {
    * trusted, so the run writes nothing beyond the placeholder rather than a key
    * set that is quietly short of the real one — types that claim a key exists,
    * or omit one that does, are worse than types that claim nothing.
+   *
+   * `key-missing`, `key-extra` and `locale-unchecked` compare the other
+   * locales with the reference. They are warnings: the schema follows the
+   * reference alone, and it is written.
    */
   export type Code =
     | 'config-unreadable'
@@ -14,7 +18,10 @@ export namespace Diagnostic {
     | 'loader-threw'
     | 'no-keys'
     | 'extractor-unreadable'
-    | 'extractor-threw';
+    | 'extractor-threw'
+    | 'key-missing'
+    | 'key-extra'
+    | 'locale-unchecked';
 
   export type Severity = 'error' | 'warning';
 
@@ -53,6 +60,14 @@ export namespace Options {
      * stays unchecked.
      */
     extractParams?: ExtractParams;
+    /**
+     * Whether the other locales are loaded and their keys compared with the
+     * reference locale's. Defaults to `true`. `false` runs only the reference
+     * locale's loaders and watches only its catalogues — for a remote loader,
+     * one request per build instead of one per locale, and no report on a
+     * locale kept partial on purpose behind `fallbackLocale`.
+     */
+    checkLocales?: boolean;
     /** Turns generation off without removing the plugin. Defaults to `true`. */
     enabled?: boolean;
   };
