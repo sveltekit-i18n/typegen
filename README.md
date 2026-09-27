@@ -14,7 +14,7 @@ Payloads come from the other half: the parser's build-time `extractParams`, whic
 
 ## Requirements
 
-Vite 8 or newer, and Node 22+. SvelteKit is optional — its plugins are picked up when the app has them, which is what makes `$lib`, `$env` and `$app/environment` resolve.
+`@sveltekit-i18n/base` 3.0 or newer (3.0 names a loader's namespace `key`; `namespace`, and a loader that lists several locales or namespaces, need 3.1), Vite 8 or newer, and Node 22+. SvelteKit is optional — its plugins are picked up when the app has them, which is what makes `$lib`, `$env` and `$app/environment` resolve.
 
 ## Installation
 
@@ -169,7 +169,7 @@ A loader that never settles is treated as one that threw, after thirty seconds. 
 ## Limits
 
 - **One reference locale.** Keys present only in another locale are not in the schema, and no diagnostic reports them.
-- **Route scoping is bypassed.** Every loader runs, so the schema covers every route, and each is handed its own first `routes` entry (or `/` when the entry is a pattern). A loader that derives its *keys* from the route it is given cannot be typed by any single choice.
+- **Route scoping is bypassed.** Every loader runs, so the schema covers every route, and each is handed its own first `routes` entry (or `/` when the entry is a pattern) and empty `params`. A loader that derives its *keys* from the route it is given cannot be typed by any single choice.
 - **A grouping-dependent `preprocess` is out of contract.** The loaders are applied in one batch, as a single visit to every route would have produced. A custom `preprocess` that looks only at the leaf it is handed sees exactly what your app hands it; one whose output depends on the sibling namespaces in the same batch is decided by how the batch was grouped, and no grouping reproduces every route an app can take.
 - **JavaScript apps need `// @ts-check`** (or `checkJs`) for `tsc` to report anything — SvelteKit's generated config allows JavaScript without checking it.
 

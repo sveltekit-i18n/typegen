@@ -33,6 +33,12 @@ flat config, Node 22+. Peers are `vite` and `@sveltekit-i18n/base`;
 `@sveltejs/kit` is an OPTIONAL peer — the plugin works in a plain Vite app, and
 Kit's plugins are simply picked up when the app has them.
 
+The base range is `^3.0.0 || ^3.1.0-next.0`: `sveltekit-i18n` 3.0 pins base
+3.0.0 exactly, so an app on it has no 3.1 core to offer. The loaders are read
+through the core's own `resolveLoaders` when the app's copy has one (3.1), and
+through a local copy of 3.0's reading otherwise; the collector imports the
+core's `/utils` as a namespace so a 3.0 core still links.
+
 The suite runs on Node only. Unlike the runtime packages there are no Bun and
 Deno legs: this never ships to a consumer's runtime. Windows IS in the matrix,
 because the package resolves module ids and writes paths.
@@ -129,6 +135,9 @@ Issues for this repo live in the `lib` tracker.
 - **Every case in `plugin.spec.ts` spawns its own process.** Kit's plugins keep
   module-level state, and the plugin's work happens inside a nested pipeline of
   exactly those plugins — two builds in one process would not be independent.
+- The suite runs against base 3.1, which the fixture app resolves too. The 3.0
+  path — no `resolveLoaders` in the core's `/utils` — is covered in process, by
+  calling `derive` without it.
 - Vitest sets `fileParallelism: false` and a two-minute timeout: a spec starts
   real Vite pipelines.
 - Fixture apps and the typing subjects are excluded from `tsconfig.json` and

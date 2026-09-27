@@ -62,24 +62,28 @@ const extractor = (options?: Options.ExtractParams): string[] => {
  */
 export const collectorSource = ({ config, configExport, derive, extractParams, referenceLocale }: CollectorInput): string => [
   "import { I18n } from '@sveltekit-i18n/base';",
-  "import { sanitizeLocales } from '@sveltekit-i18n/base/utils';",
+  // A namespace import, so a 3.0 core, which has no `resolveLoaders`, still
+  // links.
+  "import * as coreUtils from '@sveltekit-i18n/base/utils';",
   `import * as configModule from ${literal(config)};`,
   `import { derive } from ${literal(derive)};`,
   ...extractor(extractParams),
   '',
   `const config = configModule[${literal(configExport)}];`,
   '',
-  // Only `preprocess` and `sanitizeLocales` reach the probe: a parser would
-  // render messages this never renders, and a loader trigger would start a
-  // load this drives by hand.
-  'const probe = new I18n({ preprocess: config?.preprocess, sanitizeLocales: config?.sanitizeLocales });',
+  // Only `preprocess`, `sanitizeLocales` and `log` reach the probe: a parser
+  // would render messages this never renders, and a loader trigger would start
+  // a load this drives by hand. `log` sets the core's logger, which reports
+  // what reading the loaders finds, as the app's own config would.
+  'const probe = new I18n({ preprocess: config?.preprocess, sanitizeLocales: config?.sanitizeLocales, log: config?.log });',
   '',
   'export const collection = await derive({',
   '  probe,',
   '  config,',
   `  configExport: ${literal(configExport)},`,
   '  configExports: Object.keys(configModule),',
-  '  sanitizeLocales,',
+  '  sanitizeLocales: coreUtils.sanitizeLocales,',
+  '  resolveLoaders: coreUtils.resolveLoaders,',
   '  extract,',
   '  extractorFailure,',
   `  referenceLocale: ${literal(referenceLocale)},`,
