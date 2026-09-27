@@ -1,6 +1,8 @@
+import { resolveLoaders } from '@sveltekit-i18n/base/utils';
 import { describe, expect, it } from 'vitest';
 
-import { derive } from '../../src/derive.js';
+import { derive as deriveWith } from '../../src/derive.js';
+import type { DeriveInput } from '../../src/derive.js';
 import { emit, placeholder } from '../../src/emit.js';
 import type { Entry } from '../../src/types.js';
 
@@ -8,6 +10,10 @@ const entry = (key: string, value: unknown, params: Entry['params'] = []): Entry
 
 // The default normalization, standing in for the core's published helper.
 const sanitizeLocales = (...locales: unknown[]): string[] => locales.map(String);
+
+// The core the suite installs is 3.1, so its `resolveLoaders` reads the
+// loaders unless a spec takes the 3.0 path by leaving it out.
+const derive = (input: DeriveInput) => deriveWith({ resolveLoaders: resolveLoaders as DeriveInput['resolveLoaders'], ...input });
 
 const probeFactory = () => {
   const translations: Record<string, Record<string, unknown>> = {};
@@ -249,7 +255,7 @@ describe('derive', () => {
 
     // Its own first route, because a loader that reads the route can throw on
     // an empty one, and one that derives keys from it derives the wrong ones.
-    expect(seen).toEqual([{ locale: 'en', route: '/never-visited' }]);
+    expect(seen).toEqual([{ locale: 'en', namespace: 'deep', route: '/never-visited', params: {} }]);
 
     await derive({
       probe: probeFactory(),
@@ -259,7 +265,10 @@ describe('derive', () => {
     });
 
     // A pattern has no route to offer, so the root stands in.
-    expect(seen.slice(1)).toEqual([{ locale: 'en', route: '/' }, { locale: 'en', route: '/' }]);
+    expect(seen.slice(1)).toEqual([
+      { locale: 'en', namespace: 'deep', route: '/', params: {} },
+      { locale: 'en', namespace: 'deep', route: '/', params: {} },
+    ]);
   });
 
   it('gives up on a loader that never settles', async () => {
@@ -362,6 +371,22 @@ describe('derive', () => {
     expect(collection.entries).toEqual([]);
   });
 
+  it('reads any falsy sanitizeLocales but undefined as no normalization, as the core does', async () => {
+    const upperCased = (...locales: unknown[]): string[] => locales.map((locale) => String(locale).toUpperCase());
+
+    for (const off of [false, null, 0, '']) {
+      const collection = await derive({
+        probe: probeFactory(),
+        sanitizeLocales: upperCased,
+        extract: null,
+        config: { initLocale: 'en', sanitizeLocales: off, loaders: [{ namespace: 'x', locale: 'en', loader: loader({ a: '1' }) }] } as any,
+      });
+
+      expect(collection.referenceLocale).toBe('en');
+      expect(collection.entries.map(({ key }) => key)).toEqual(['x.a']);
+    }
+  });
+
   it('honours a custom sanitizeLocales, and degrades when it throws', async () => {
     const upper = async (sanitize: any) => (await derive({
       probe: probeFactory(),
@@ -418,5 +443,66 @@ describe('derive', () => {
     });
 
     expect(collection.entries.map(({ key }) => key).sort()).toEqual(['a', 'x.b']);
+  });
+
+  describe('through the core\'s resolveLoaders', () => {
+    const run = (config: any, extra: Record<string, unknown> = {}) => derive({
+      probe: probeFactory(),
+      sanitizeLocales,
+      resolveLoaders: resolveLoaders as any,
+      extract: null,
+      config,
+      ...extra,
+    });
+
+    const codes = ({ diagnostics }: { diagnostics: { code: string }[] }) => diagnostics.map(({ code }) => code);
+
+    it('expands a loader that lists several locales and namespaces', async () => {
+      const seen: unknown[] = [];
+      const collection = await run({
+        initLocale: 'en',
+        loaders: [{
+          namespace: ['home', 'about'],
+          locale: ['en', 'cs'],
+          loader: async (props: any) => {
+            seen.push(props);
+
+            return { title: `${props.locale}/${props.namespace}` };
+          },
+        }],
+      });
+
+      expect(collection.entries.map(({ key, value }) => [key, value]).sort()).toEqual([
+        ['about.title', 'en/about'],
+        ['home.title', 'en/home'],
+      ]);
+      expect(seen).toEqual([
+        { locale: 'en', namespace: 'home', route: '/', params: {} },
+        { locale: 'en', namespace: 'about', route: '/', params: {} },
+      ]);
+      expect(codes(collection)).toEqual([]);
+    });
+  });
+
+  describe('on a 3.0 core, which has no resolveLoaders', () => {
+    const run = (config: any) => derive({ probe: probeFactory(), sanitizeLocales, resolveLoaders: undefined, extract: null, config });
+
+    it('reads the namespace under `key`, the only name that core knows', async () => {
+      const collection = await run({
+        initLocale: 'en',
+        loaders: [{ key: 'home', locale: 'en', loader: loader({ title: 'x' }) }],
+      });
+
+      expect(collection.entries.map(({ key }) => key)).toEqual(['home.title']);
+    });
+
+    it('keys a loader without `key` under \'undefined\', as that core does', async () => {
+      const collection = await run({
+        initLocale: 'en',
+        loaders: [{ namespace: 'home', locale: 'en', loader: loader({ title: 'x' }) }],
+      });
+
+      expect(collection.entries.map(({ key }) => key)).toEqual(['undefined.title']);
+    });
   });
 });

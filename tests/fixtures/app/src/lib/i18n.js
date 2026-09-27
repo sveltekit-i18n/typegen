@@ -37,3 +37,14 @@ export const throwing = {
 };
 
 export const nameless = { loaders: [] };
+
+export const listed = {
+  initLocale: 'en',
+  loaders: [{
+    namespace: ['home', 'about'],
+    locale: ['en', 'cs'],
+    loader: async ({ locale, namespace }) => (
+      namespace === 'home' ? (await import(`./translations/home/${locale}.json`)).default : { title: locale === 'en' ? 'About' : 'O nás' }
+    ),
+  }],
+};

@@ -2,9 +2,12 @@ import type { Parser } from '@sveltekit-i18n/base';
 
 import type { Collection, Diagnostic, Entry } from './types.js';
 
-type Descriptor = { namespace?: string; key?: string; locale?: string; routes?: unknown; loader?: (props: { locale: string; route: string }) => unknown };
+type LoaderProps = { locale: string; namespace: unknown; route: string; params: Record<string, string> };
 
-type Loader = Omit<Descriptor, 'key'>;
+type Descriptor = { namespace?: unknown; key?: unknown; locale?: string; routes?: unknown; loader?: (props: LoaderProps) => unknown };
+
+/** One locale and one namespace, the shape the core's `resolveLoaders` hands back. */
+type Loader = { namespace: unknown; locale: string; routes?: unknown; loader?: Descriptor['loader'] };
 
 type Config = {
   loaders?: readonly unknown[];
@@ -12,8 +15,11 @@ type Config = {
   initLocale?: string;
   fallbackLocale?: string;
   preprocess?: unknown;
+  log?: unknown;
   sanitizeLocales?: boolean | ((locale: string) => string);
 };
+
+export type ResolveLoaders = (loaders: readonly any[] | undefined, sanitizeLocales?: any) => readonly Loader[];
 
 export type Probe = {
   addTranslations: (translations: any) => void;
@@ -35,6 +41,11 @@ export type DeriveInput = {
   configExports?: readonly string[];
   /** The core's own `sanitizeLocales`, from the app's copy of it. */
   sanitizeLocales: (...locales: unknown[]) => string[];
+  /**
+   * The core's own `resolveLoaders`, from the app's copy of it. A 3.0 core has
+   * none, and its loaders are read here instead.
+   */
+  resolveLoaders?: ResolveLoaders;
   extract: Parser.ExtractParams | null;
   /** Why there is no extractor although one was asked for. */
   extractorFailure?: { message: string; cause?: unknown } | null;
@@ -59,7 +70,9 @@ const sanitizerFor = ({ sanitizeLocales: custom }: Config, fallback: (...locales
       }
     }
 
-    if (custom === false) return locale;
+    // The core's default parameter covers only `undefined`; any other falsy
+    // value turns normalization off, in a JavaScript config too.
+    if (custom !== undefined && !custom) return locale;
 
     const [sanitized = locale] = fallback(locale);
 
@@ -83,15 +96,16 @@ const merge = (target: unknown, source: unknown): unknown => {
   }), { ...(target as Record<string, unknown>) });
 };
 
-// Loader properties are consumer code and an accessor may throw, so each
-// descriptor is materialized on its own. The core accepts the namespace under
-// either name, so both are read here and only one leaves.
-const readLoaders = (input: readonly unknown[] = []): Loader[] => (
+// What a 3.0 core loads, which has no `resolveLoaders` to ask: one locale and
+// the namespace under `key`, its only name there — a descriptor without one
+// lands under 'undefined'. Loader properties are consumer code and an accessor
+// may throw, so each descriptor is materialized on its own.
+const readLoaders = (input: readonly unknown[] = [], sanitize: (locale: string) => string): Loader[] => (
   input.reduce<Loader[]>((acc, descriptor) => {
     try {
-      const { namespace, key, locale, routes, loader } = descriptor as Descriptor;
+      const { key, locale, routes, loader } = descriptor as Descriptor;
 
-      return [...acc, { namespace: namespace ?? key, locale, routes, loader }];
+      return locale ? [...acc, { namespace: key, locale: sanitize(locale), routes, loader }] : acc;
     } catch {
       return acc;
     }
@@ -140,17 +154,20 @@ const withDeadline = async <T>(work: Promise<T>, after: number): Promise<T> => {
  * The locale whose catalogue defines the key set. A config's own starting point
  * is the best guess at the catalogue its author keeps complete.
  */
-const pickReference = (config: Config, sanitize: (locale: string) => string, requested?: string): string | undefined => {
+const pickReference = (config: Config, loaders: readonly Loader[], sanitize: (locale: string) => string, requested?: string): string | undefined => {
   const stated = requested ?? config.initLocale ?? config.fallbackLocale;
 
   if (stated) return sanitize(stated);
 
   const fromTranslations = Object.keys(config.translations ?? {})[0];
-  const fromLoaders = readLoaders(config.loaders).find(({ locale }) => locale)?.locale;
-  const found = fromTranslations ?? fromLoaders;
 
-  return found ? sanitize(found) : undefined;
+  if (fromTranslations) return sanitize(fromTranslations);
+
+  return loaders[0]?.locale;
 };
+
+// A namespace may be a Symbol, which a template literal refuses to interpolate.
+const loaderName = ({ locale, namespace }: Loader): string => `'${locale}' > '${String(namespace)}'`;
 
 /**
  * Runs the config's loaders and reads back the keys the core would hold.
@@ -167,6 +184,7 @@ export const derive = async ({
   configExport = 'config',
   configExports,
   sanitizeLocales,
+  resolveLoaders,
   extract,
   extractorFailure,
   referenceLocale,
@@ -190,7 +208,8 @@ export const derive = async ({
     : [];
 
   const sanitize = sanitizerFor(config, sanitizeLocales);
-  const reference = pickReference(config, sanitize, referenceLocale);
+  const loaders = resolveLoaders ? resolveLoaders(config.loaders, config.sanitizeLocales) : readLoaders(config.loaders, sanitize);
+  const reference = pickReference(config, loaders, sanitize, referenceLocale);
 
   if (!reference) {
     return {
@@ -204,15 +223,15 @@ export const derive = async ({
   // own, before any load.
   if (config.translations) probe.addTranslations(config.translations);
 
-  const matching = readLoaders(config.loaders).filter(({ locale, loader }) => (
-    typeof loader === 'function' && !!locale && sanitize(locale) === reference
-  ));
+  const matching = loaders.filter(({ locale, loader }) => typeof loader === 'function' && locale === reference);
 
   type Loaded = { descriptor: Loader; data?: unknown; failure?: { cause: unknown } };
 
   const loaded = await Promise.all(matching.map(async (descriptor): Promise<Loaded> => {
+    const { locale, namespace } = descriptor;
+
     try {
-      return { descriptor, data: await withDeadline(Promise.resolve(descriptor.loader!({ locale: reference, route: routeFor(descriptor) })), deadline) };
+      return { descriptor, data: await withDeadline(Promise.resolve(descriptor.loader!({ locale, namespace, route: routeFor(descriptor), params: {} })), deadline) };
     } catch (cause) {
       return { descriptor, failure: { cause } };
     }
@@ -221,7 +240,7 @@ export const derive = async ({
   const failures = loaded.reduce<Diagnostic.T[]>((acc, { descriptor, failure }) => (
     failure ? [...acc, {
       code: 'loader-threw' as const,
-      message: `The '${descriptor.locale}' > '${descriptor.namespace}' loader threw, so its keys are missing.`,
+      message: `The ${loaderName(descriptor)} loader threw, so its keys are missing.`,
       cause: failure.cause,
     }] : acc
   ), []);
@@ -234,11 +253,10 @@ export const derive = async ({
   const batch = loaded.reduce<Record<string, unknown>>((acc, { descriptor, data }) => {
     if (!data) return acc;
 
-    const { namespace } = descriptor;
+    // Keyed as the core keys it, which spells an absent 3.0 `key` 'undefined'.
+    const name = descriptor.namespace as string;
 
-    if (!namespace) return merge(acc, data) as Record<string, unknown>;
-
-    return { ...acc, [namespace]: Object.hasOwn(acc, namespace) ? merge(acc[namespace], data) : data };
+    return { ...acc, [name]: Object.hasOwn(acc, name) ? merge(acc[name], data) : data };
   }, {});
 
   if (Object.keys(batch).length) probe.addTranslations({ [reference]: batch });

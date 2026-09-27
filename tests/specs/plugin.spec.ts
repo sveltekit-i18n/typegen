@@ -187,6 +187,13 @@ describe('a build that cannot derive the keys', () => {
     expect(await artifact()).toBe(STALE);
   });
 
+  it('reads a loader that lists its locales through the app\'s core', async () => {
+    await build({ configExport: 'listed' });
+
+    expect(await artifact()).toContain("'home.title': any;");
+    expect(await artifact()).toContain("'about.title': any;");
+  });
+
   it('degrades to keys only when the extractor cannot be read', async () => {
     const output = await build({ extractParams: { from: 'sveltekit-i18n', name: 'notThere' } });
 
