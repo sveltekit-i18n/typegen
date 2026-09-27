@@ -10,6 +10,8 @@ export type CollectorInput = {
   configExport: string;
   /** Where this package's own `derive` sits on disk, as a `file:` URL. */
   derive: string;
+  /** The id the core the config runs on is served under. */
+  core: string;
   extractParams?: Options.ExtractParams;
   referenceLocale?: string;
   checkLocales?: boolean;
@@ -55,19 +57,20 @@ const extractor = (options?: Options.ExtractParams): string[] => {
  * invoked afterwards throws. Everything therefore happens at the top level,
  * under `await`, and only the finished result is read off the exports.
  *
- * The core and the extractor are imported by bare specifier so the APP's copies
- * answer — the key set has to be the one the app's own versions produce.
+ * The core is the copy the config runs on, and the extractor is imported by
+ * bare specifier, so the APP's copies answer — the key set has to be the one
+ * the app's own versions produce.
  * `derive` is imported by `file:` URL instead: it is this package's code, it
  * carries no runes and no bare imports of its own, so the runner hands it
  * straight to the host runtime.
  */
-export const collectorSource = ({ config, configExport, derive, extractParams, referenceLocale, checkLocales }: CollectorInput): string => [
-  "import { I18n } from '@sveltekit-i18n/base';",
-  // A namespace import, so a 3.0 core, which has no `resolveLoaders`, still
-  // links.
-  "import * as coreUtils from '@sveltekit-i18n/base/utils';",
+export const collectorSource = ({ config, configExport, derive, core, extractParams, referenceLocale, checkLocales }: CollectorInput): string => [
   `import * as configModule from ${literal(config)};`,
   `import { derive } from ${literal(derive)};`,
+  '',
+  // Imported once the config has evaluated, so the core it names is the one
+  // the config's own imports reached.
+  `const { I18n, utils: coreUtils, location: coreLocation } = await import(${literal(core)});`,
   ...extractor(extractParams),
   '',
   `const config = configModule[${literal(configExport)}];`,
@@ -87,6 +90,7 @@ export const collectorSource = ({ config, configExport, derive, extractParams, r
   '  configExports: Object.keys(configModule),',
   '  sanitizeLocales: coreUtils.sanitizeLocales,',
   '  resolveLoaders: coreUtils.resolveLoaders,',
+  '  coreLocation,',
   `  checkLocales: ${literal(checkLocales)},`,
   '  extract,',
   '  extractorFailure,',

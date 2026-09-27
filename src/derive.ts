@@ -46,6 +46,8 @@ export type DeriveInput = {
    * none, and its loaders are read here instead.
    */
   resolveLoaders?: ResolveLoaders;
+  /** Where the core the config runs on was found, for a diagnostic to name. */
+  coreLocation?: string | null;
   /** Whether the other locales are loaded and compared with the reference. Defaults to `true`. */
   checkLocales?: boolean;
   extract: Parser.ExtractParams | null;

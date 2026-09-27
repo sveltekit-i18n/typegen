@@ -8,12 +8,24 @@ import type { Collection, Options } from './types.js';
 
 const VIRTUAL = '\0virtual:sveltekit-i18n-typegen';
 
+const CORE = 'virtual:sveltekit-i18n-typegen/core';
+const CORE_ID = `\0${CORE}`;
+
+const LIB = 'sveltekit-i18n';
+const BASE = '@sveltekit-i18n/base';
+
+// The package a specifier names, when it is one of the two a config builds its
+// instance from.
+const corePackage = (id: string): string | undefined => (
+  [LIB, BASE].find((name) => id === name || id.startsWith(`${name}/`))
+);
+
 // A `runnerImport` environment loads dependencies raw, so the core's rune
 // modules — which ship uncompiled, for the consumer's bundler — would reach the
 // host runtime with `$state` undefined. `esm-env` is what `$app/environment`
 // reads, and externalized it answers `undefined` rather than a boolean, which a
 // config branching on `dev` reads as production by accident.
-const NO_EXTERNAL = ['@sveltekit-i18n/base', 'esm-env'];
+const NO_EXTERNAL = ['sveltekit-i18n', /^@sveltekit-i18n\//, 'esm-env'];
 
 /**
  * Runs the collection under the build's own notion of the environment.
@@ -36,11 +48,61 @@ const asEnvironment = async <T>(production: boolean, work: () => Promise<T>): Pr
   }
 };
 
-const serve = (source: string): Plugin => ({
-  name: 'sveltekit-i18n-typegen:collector',
-  resolveId: (id) => (id === VIRTUAL ? VIRTUAL : undefined),
-  load: (id) => (id === VIRTUAL ? source : undefined),
-});
+/**
+ * Serves the collector, and the core it builds its probe from.
+ *
+ * The probe has to come from the copy of the core the config itself runs on:
+ * the one `sveltekit-i18n` depends on when the config imports that (which the
+ * app root need not resolve at all, as under pnpm), the one it imports
+ * otherwise. The config's imports are resolved before the collector asks for
+ * the core, so they are watched on the way through.
+ */
+const serve = (source: string): Plugin => {
+  const importers = new Map<string, string>();
+  let coreImporter: string | undefined;
+
+  return {
+    name: 'sveltekit-i18n-typegen:collector',
+    enforce: 'pre',
+
+    async resolveId(id, importer, options) {
+      if (id === VIRTUAL) return VIRTUAL;
+      if (id === CORE) return CORE_ID;
+
+      // The core module names the core by bare specifier, resolved from the
+      // package the config reached it through.
+      if (importer === CORE_ID) return this.resolve(id, coreImporter, { ...options, skipSelf: true });
+
+      const name = corePackage(id);
+
+      if (name && importer && importer !== VIRTUAL && !importers.has(name)) importers.set(name, importer);
+
+      return undefined;
+    },
+
+    async load(id) {
+      if (id === VIRTUAL) return source;
+      if (id !== CORE_ID) return undefined;
+
+      // A config that imports the core directly and no `sveltekit-i18n` runs on
+      // that copy; one that imports neither, a plain object, gets whichever the
+      // app has, `sveltekit-i18n` first.
+      const lib = importers.has(BASE) && !importers.has(LIB) ? null : await this.resolve(LIB, importers.get(LIB), { skipSelf: true });
+
+      coreImporter = lib?.id ?? importers.get(BASE);
+
+      const core = await this.resolve(BASE, coreImporter, { skipSelf: true });
+
+      return [
+        `export { I18n } from '${BASE}';`,
+        // A namespace import, so a 3.0 core, which has no `resolveLoaders`,
+        // still links.
+        `export * as utils from '${BASE}/utils';`,
+        `export const location = ${JSON.stringify(core?.id ?? null)};`,
+      ].join('\n');
+    },
+  };
+};
 
 /**
  * The app's own plugins, built fresh.
@@ -100,6 +162,7 @@ export const collect = async ({ options, resolved }: CollectInput): Promise<{ co
     config: await configId(resolved.root, options.config),
     configExport: options.configExport,
     derive: new URL('./derive.js', import.meta.url).href,
+    core: CORE,
     extractParams: options.extractParams,
     referenceLocale: options.referenceLocale,
     checkLocales: options.checkLocales,
