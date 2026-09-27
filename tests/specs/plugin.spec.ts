@@ -121,6 +121,13 @@ describe('a production build', () => {
     expect(await artifact()).toContain('/** in production */');
   });
 
+  it('reads a config module that builds its instance from sveltekit-i18n', async () => {
+    const output = await build({ config: 'src/lib/instance.js' });
+
+    expect(output).not.toContain('[config-unreadable]');
+    expect(await artifact()).toContain("'home.title': any;");
+  });
+
   it('hands a route-scoped loader a route it could have run on', async () => {
     // An empty string is not a route any app visits: a loader that reads one
     // can throw, and one that derives keys from it derives the wrong ones.

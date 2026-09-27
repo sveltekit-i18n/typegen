@@ -29,9 +29,11 @@ build-time tooling, so it is deliberately NOT in `base` — the core keeps its
 zero runtime dependencies and this repo keeps its own release cadence.
 
 Stack: npm with `package-lock.json`, TypeScript ESM, tsup, Vitest, ESLint 10
-flat config, Node 22+. Peers are `vite` and `@sveltekit-i18n/base`;
-`@sveltejs/kit` is an OPTIONAL peer — the plugin works in a plain Vite app, and
-Kit's plugins are simply picked up when the app has them.
+flat config, Node 22+. The peer is `vite`; `sveltekit-i18n`,
+`@sveltekit-i18n/base` and `@sveltejs/kit` are OPTIONAL peers — an app brings
+one of the two cores, and a required peer on base would install a second copy
+next to the one `sveltekit-i18n` depends on. The plugin works in a plain Vite
+app, and Kit's plugins are simply picked up when the app has them.
 
 The base range is `^3.0.0 || ^3.1.0-next.0`: `sveltekit-i18n` 3.0 pins base
 3.0.0 exactly, so an app on it has no 3.1 core to offer. The loaders are read
@@ -86,11 +88,19 @@ Issues for this repo live in the `lib` tracker.
   plugins share one closure; re-running their `configResolved` inside a nested
   environment overwrites the config the outer build later reads, the adapter
   never runs, and the build still exits zero.
-- **The core is inlined (`resolve.noExternal`), and so is `esm-env`.** base
-  ships its rune modules uncompiled for the consumer's bundler, so externalized
-  it reaches the host runtime with `$state` undefined. Externalized `esm-env`
-  makes `$app/environment.dev` `undefined` rather than a boolean, which a config
-  branching on it reads as production by accident.
+- **The probe is built from the core the config runs on.** The collector
+  watches the config's imports resolve and asks for the core afterwards, from
+  a virtual module: base as `sveltekit-i18n` resolves it when the config
+  imports that, as the config resolves it when it imports base, and from the
+  root, `sveltekit-i18n` first, when it imports neither. The app root need not
+  resolve base at all (pnpm), and a stray root copy of another version must
+  not type the app.
+- **The core is inlined (`resolve.noExternal`: `sveltekit-i18n` and every
+  `@sveltekit-i18n/` package), and so is `esm-env`.** base ships its rune
+  modules uncompiled for the consumer's bundler, so externalized it reaches the
+  host runtime with `$state` undefined — through `sveltekit-i18n` too.
+  Externalized `esm-env` makes `$app/environment.dev` `undefined` rather than a
+  boolean, which a config branching on it reads as production by accident.
 - **`NODE_ENV` is stated for the call and put back.** `runnerImport` always
   resolves as `serve`, so a config branching on `dev` would hand a production
   build the development key set — and `runnerImport` rewrites the host's
