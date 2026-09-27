@@ -9,7 +9,9 @@ export namespace Diagnostic {
    *
    * `key-missing`, `key-extra` and `locale-unchecked` compare the other
    * locales with the reference. They are warnings: the schema follows the
-   * reference alone, and it is written.
+   * reference alone, and it is written. `loader-skipped` is a warning too: a
+   * loader that cannot run outside the app leaves its namespace open in the
+   * schema rather than failing it.
    */
   export type Code =
     | 'config-unreadable'
@@ -17,6 +19,7 @@ export namespace Diagnostic {
     | 'core-too-old'
     | 'reference-locale-missing'
     | 'loader-threw'
+    | 'loader-skipped'
     | 'no-keys'
     | 'extractor-unreadable'
     | 'extractor-threw'
@@ -94,9 +97,17 @@ export type Entry = {
   params: readonly Parser.ParamSpec[] | null;
 };
 
+/** A namespace whose loader cannot run outside the app, so no key of it is known. */
+export type Skipped = {
+  namespace: string;
+  /** Under `preprocess: 'none'` the namespace is itself the key. */
+  whole: boolean;
+};
+
 /** What one collection produced, whether or not it produced an artifact. */
 export type Collection = {
   entries: Entry[];
+  skipped?: Skipped[];
   referenceLocale: string;
   diagnostics: Diagnostic.T[];
 };

@@ -96,7 +96,7 @@ export const typegen = (options: Options.T): Plugin => {
       // claim a key exists, or hide one that does, and the runtime would
       // disagree. On an error the previous artifact stands.
       if (report(collection, log)) {
-        await writeIfChanged(outFile, emit(collection.entries, collection.referenceLocale).contents);
+        await writeIfChanged(outFile, emit(collection.entries, collection.referenceLocale, collection.skipped).contents);
       }
 
       return dependencies;

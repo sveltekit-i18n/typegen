@@ -160,6 +160,17 @@ describe('emit', () => {
     expect(emit([entry('a', 'x')], 'en-GB').contents).toContain('Reference locale: en-GB');
   });
 
+  it('opens a skipped namespace to any key under it, escaped for a template type', () => {
+    const { contents } = emit([entry('home.title', 'x')], 'en', [{ namespace: 'a`b${c}\\', whole: false }]);
+
+    expect(contents).toContain('[key: `a\\`b\\${c}\\\\.${string}`]: any;');
+    expect(contents).toContain("'home.title': never;");
+  });
+
+  it('types a skipped namespace as one key when the keys are not dotted', () => {
+    expect(emit([], 'en', [{ namespace: 'post', whole: true }]).contents).toContain("'post': any;");
+  });
+
   it('degrades to no schema when the catalogue is empty', () => {
     expect(emit([], 'en').contents).toContain('interface TranslationSchema {}');
   });
@@ -655,6 +666,114 @@ describe('derive', () => {
         "'de' lacks 1 key the reference 'en' has: 'n.c'.",
         "'fr' lacks 2 keys the reference 'en' has: 'n.b', 'n.c'. 1 of them render from 'de'.",
       ]);
+    });
+  });
+
+  describe('a loader that cannot run outside the app', () => {
+    const requestStore = async () => {
+      throw new Error('Could not get the request store. This is an internal error.');
+    };
+
+    const withParams = async ({ params }: { params: Record<string, string> }) => {
+      if (!params.slug) throw new Error('No slug.');
+
+      return { title: 'x' };
+    };
+
+    const run = (config: any) => derive({ probe: probeFactory(), sanitizeLocales, extract: null, config: { initLocale: 'en', ...config } });
+
+    it('skips a loader that needs a request, and writes the rest', async () => {
+      const collection = await run({
+        loaders: [
+          { namespace: 'home', locale: 'en', loader: loader({ title: 'x' }) },
+          { namespace: 'post', locale: 'en', cache: false, loader: requestStore },
+        ],
+      });
+
+      expect(collection.entries.map(({ key }) => key)).toEqual(['home.title']);
+      expect(collection.skipped).toEqual([{ namespace: 'post', whole: false }]);
+      expect(collection.diagnostics.map(({ code }) => code)).toEqual(['loader-skipped']);
+    });
+
+    it('skips a loader whose routes capture params', async () => {
+      const collection = await run({
+        loaders: [
+          { namespace: 'home', locale: 'en', loader: loader({ title: 'x' }) },
+          { namespace: 'post', locale: 'en', routes: [/^\/blog\/(?<slug>[^/]+)$/], loader: withParams },
+        ],
+      });
+
+      expect(collection.skipped).toEqual([{ namespace: 'post', whole: false }]);
+      expect(collection.diagnostics.map(({ code }) => code)).toEqual(['loader-skipped']);
+    });
+
+    it('still fails on any other throw, whatever the loader', async () => {
+      const collection = await run({
+        loaders: [{ namespace: 'post', locale: 'en', cache: false, loader: async () => { throw new Error('Offline.'); } }],
+      });
+
+      expect(collection.skipped ?? []).toEqual([]);
+      expect(collection.diagnostics.map(({ code }) => code)).toContain('loader-threw');
+    });
+
+    it('types the namespace as one key under `preprocess: \'none\'`', async () => {
+      const collection = await run({
+        preprocess: 'none',
+        loaders: [{ namespace: 'post', locale: 'en', loader: requestStore }],
+      });
+
+      expect(collection.skipped).toEqual([{ namespace: 'post', whole: true }]);
+    });
+
+    it('fails under a custom preprocess, which no key shape can be guessed for', async () => {
+      const collection = await run({
+        preprocess: (input: unknown) => input,
+        loaders: [{ namespace: 'post', locale: 'en', loader: requestStore }],
+      });
+
+      expect(collection.diagnostics.map(({ code }) => code)).toContain('loader-threw');
+    });
+
+    it('fails on an empty namespace, whose keys carry no prefix to open', async () => {
+      const collection = await run({ loaders: [{ namespace: '', locale: 'en', loader: requestStore }] });
+
+      expect(collection.diagnostics.map(({ code }) => code)).toContain('loader-threw');
+    });
+
+    it('opens an empty namespace under `preprocess: \'none\'`, where it is the key', async () => {
+      const collection = await run({ preprocess: 'none', loaders: [{ namespace: '', locale: 'en', loader: requestStore }] });
+
+      expect(collection.skipped).toEqual([{ namespace: '', whole: true }]);
+    });
+
+    it('names each locale once, however many of its loaders were skipped', async () => {
+      const collection = await run({
+        loaders: [
+          { namespace: 'post', locale: 'en', loader: requestStore },
+          { namespace: 'post', locale: 'en', cache: false, loader: requestStore },
+        ],
+      });
+
+      expect(collection.diagnostics[0].message).toContain("('en')");
+    });
+
+    it('writes a schema when every loader was skipped', async () => {
+      const collection = await run({ loaders: [{ namespace: 'post', locale: 'en', loader: requestStore }] });
+
+      expect(collection.diagnostics.map(({ code }) => code)).toEqual(['loader-skipped']);
+    });
+
+    it('still compares the other namespaces of the other locales', async () => {
+      const collection = await run({
+        loaders: [
+          { namespace: 'home', locale: 'en', loader: loader({ title: 'x', lead: 'x' }) },
+          { namespace: 'home', locale: 'cs', loader: loader({ title: 'x' }) },
+          { namespace: 'post', locale: ['en', 'cs'], loader: requestStore },
+        ],
+      });
+
+      expect(collection.diagnostics.map(({ code }) => code)).toEqual(['loader-skipped', 'key-missing']);
+      expect(collection.diagnostics[1].message).toContain("'home.lead'");
     });
   });
 
