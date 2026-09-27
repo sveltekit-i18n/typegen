@@ -87,6 +87,12 @@ describe('the emitted artifact, compiled against the published types', () => {
     expect(output).toContain("not assignable to parameter of type 'undefined'");
   });
 
+  it('opens a skipped namespace and leaves the rest narrow', async () => {
+    await writeFile(SCHEMA, emit(SCHEMA_ENTRIES, 'en', [{ namespace: 'post', whole: false }]).contents, 'utf8');
+
+    expect(await compile('skipped.ts')).toBe('');
+  });
+
   it('compiles a project that has never generated', async () => {
     // The hole the placeholder closes: without a file the app does not compile
     // at all, and the error names `TranslationSchema` rather than anything the

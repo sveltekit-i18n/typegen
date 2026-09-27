@@ -1,6 +1,6 @@
 import type { Parser } from '@sveltekit-i18n/base';
 
-import type { Entry } from './types.js';
+import type { Entry, Skipped } from './types.js';
 
 const KINDS: Record<Parser.ParamKind, string> = {
   unknown: 'unknown',
@@ -14,6 +14,15 @@ const KINDS: Record<Parser.ParamKind, string> = {
 };
 
 const quote = (name: string): string => `'${name.split('\\').join('\\\\').split("'").join("\\'")}'`;
+
+// A namespace is any string, and a template type reads a backtick and `${` too.
+const template = (text: string): string => text.split('\\').join('\\\\').split('`').join('\\`').split('${').join('\\${');
+
+const SKIPPED_NOTE = '  /** Not read: its loader cannot run outside the app. */';
+
+const skippedMember = ({ namespace, whole }: Skipped): string => (
+  whole ? `  ${quote(namespace)}: any;` : `  [key: \`${template(namespace)}.\${string}\`]: any;`
+);
 
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
@@ -107,8 +116,9 @@ export const placeholder = (): string => [
  * The generated declarations. Keys are sorted so that an unchanged catalogue
  * produces unchanged bytes and the write can be skipped.
  */
-export const emit = (entries: readonly Entry[], referenceLocale: string): Artifact => {
+export const emit = (entries: readonly Entry[], referenceLocale: string, skipped: readonly Skipped[] = []): Artifact => {
   const sorted = [...entries].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  const keys = new Set(sorted.map(({ key }) => key));
 
   const members = sorted.reduce<string[]>((acc, entry) => {
     const note = describe(entry.value);
@@ -116,11 +126,18 @@ export const emit = (entries: readonly Entry[], referenceLocale: string): Artifa
     return [...acc, ...(note ? [`  /** ${note} */`] : []), `  ${quote(entry.key)}: ${valueOf(entry, '  ')};`];
   }, []);
 
+  // A pattern member keeps the schema closed: every other key still narrows,
+  // and a key the reference did deliver keeps its own payload.
+  const open = [...skipped]
+    .filter(({ namespace, whole }) => !whole || !keys.has(namespace))
+    .sort((a, b) => (a.namespace < b.namespace ? -1 : a.namespace > b.namespace ? 1 : 0))
+    .flatMap((one) => [SKIPPED_NOTE, skippedMember(one)]);
+
   const contents = [
     BANNER,
     `// Reference locale: ${referenceLocale}`,
     '',
-    members.length ? `interface TranslationSchema {\n${members.join('\n')}\n}` : 'interface TranslationSchema {}',
+    members.length || open.length ? `interface TranslationSchema {\n${[...members, ...open].join('\n')}\n}` : 'interface TranslationSchema {}',
     '',
   ].join('\n');
 

@@ -1,6 +1,6 @@
 import type { Parser } from '@sveltekit-i18n/base';
 
-import type { Collection, Diagnostic, Entry } from './types.js';
+import type { Collection, Diagnostic, Entry, Skipped } from './types.js';
 
 type LoaderProps = { locale: string; namespace: unknown; route: string; params: Record<string, string> };
 
@@ -142,6 +142,61 @@ const routeFor = ({ routes }: Loader): string => {
 
   return typeof first === 'string' ? first : '/';
 };
+
+// Whether a route can yield params: a pattern with a named group, as the core
+// reads it — its own check is not published.
+const namesGroups = (input: unknown): boolean => {
+  if (!(input instanceof RegExp)) return false;
+
+  try {
+    const groups = new RegExp(`(?:${input.source})|`, input.flags.replace(/[gy]/g, '')).exec('')?.groups;
+
+    return !!groups && Object.keys(groups).length > 0;
+  } catch {
+    return false;
+  }
+};
+
+const capturesParams = ({ routes }: Loader): boolean => Array.isArray(routes) && routes.some(namesGroups);
+
+// What SvelteKit throws when a remote function runs outside a request.
+const REQUEST_STORE = 'Could not get the request store.';
+
+const needsRequest = (cause: unknown): boolean => {
+  try {
+    const { message } = cause as { message?: unknown };
+
+    return typeof message === 'string' && message.startsWith(REQUEST_STORE);
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * How a namespace whose loader cannot run here is typed, or `undefined` when
+ * its failure has to fail the generation.
+ *
+ * Only a throw that shows the missing context qualifies: a remote function
+ * outside a request, or a loader whose routes capture params it was not given.
+ * Anything else — a network that blinked, a deadline — would otherwise replace
+ * a narrow schema with an open one. The key shape is known for the core's own
+ * strategies only: a custom `preprocess` could file the data anywhere.
+ */
+const skipOf = (descriptor: Loader, cause: unknown, preprocess: unknown, params: boolean): Skipped | undefined => {
+  const { namespace } = descriptor;
+
+  if (typeof namespace !== 'string') return undefined;
+  if (!needsRequest(cause) && !(params && capturesParams(descriptor))) return undefined;
+  if (preprocess === 'none') return { namespace, whole: true };
+  // Preprocessed, an empty namespace files its keys unprefixed, so there is no
+  // prefix to open.
+  if (!namespace) return undefined;
+  if (preprocess === undefined || preprocess === 'full' || preprocess === 'preserveArrays') return { namespace, whole: false };
+
+  return undefined;
+};
+
+const under = ({ namespace, whole }: Skipped) => (key: string): boolean => key === namespace || (!whole && key.startsWith(`${namespace}.`));
 
 const DEADLINE = 30_000;
 
@@ -286,7 +341,7 @@ export const derive = async ({
   const locales = [reference, ...(checkLocales ? callable.map(({ locale }) => locale).filter((locale) => locale !== reference) : [])]
     .filter((locale, index, all) => all.indexOf(locale) === index);
 
-  type Loaded = { descriptor: Loader; data?: unknown; failure?: { cause: unknown } };
+  type Loaded = { descriptor: Loader; data?: unknown; failure?: { cause: unknown; skip?: Skipped } };
 
   // Every locale at once, so the whole collection waits one deadline at most.
   const loaded = await Promise.all(callable.filter(({ locale }) => locales.includes(locale)).map(async (descriptor): Promise<Loaded> => {
@@ -295,17 +350,39 @@ export const derive = async ({
     try {
       return { descriptor, data: await withDeadline(Promise.resolve(descriptor.loader!({ locale, namespace, route: routeFor(descriptor), params: {} })), deadline) };
     } catch (cause) {
-      return { descriptor, failure: { cause } };
+      // Params come from a 3.1 core only: a 3.0 one never hands a loader any.
+      return { descriptor, failure: { cause, skip: skipOf(descriptor, cause, config.preprocess, !!resolveLoaders) } };
     }
   }));
 
-  const failedIn = (locale: string) => loaded.filter(({ descriptor, failure }) => failure && descriptor.locale === locale);
+  const failedIn = (locale: string) => loaded.filter(({ descriptor, failure }) => failure && !failure.skip && descriptor.locale === locale);
 
   const failures = failedIn(reference).map(({ descriptor, failure }): Diagnostic.T => ({
     code: 'loader-threw',
     message: `The ${loaderName(descriptor)} loader threw, so its keys are missing.`,
     cause: failure!.cause,
   }));
+
+  // One warning per namespace, in whichever locales it was skipped.
+  const skippedLoads = loaded.filter(({ failure }) => failure?.skip);
+  const skippedNames = skippedLoads.map(({ failure }) => failure!.skip!.namespace).filter((name, index, all) => all.indexOf(name) === index);
+  const skipped = skippedNames.map((name) => skippedLoads.find(({ failure }) => failure!.skip!.namespace === name)!.failure!.skip!);
+  const referenceSkipped = skipped.filter(({ namespace }) => skippedLoads.some(({ descriptor, failure }) => descriptor.locale === reference && failure!.skip!.namespace === namespace));
+
+  const skips = skipped.map((skip): Diagnostic.T => {
+    const of = skippedLoads.filter(({ failure }) => failure!.skip!.namespace === skip.namespace);
+    const locales = [...new Set(of.map(({ descriptor }) => descriptor.locale))].map((locale) => `'${locale}'`).join(', ');
+
+    return {
+      code: 'loader-skipped',
+      message: `The '${skip.namespace}' loader cannot run outside the app (${locales}), so ${referenceSkipped.includes(skip)
+        ? `any key under '${skip.namespace}' is accepted and its payload is not checked`
+        : `'${skip.namespace}' was not compared`}.`,
+      cause: of[0].failure!.cause,
+    };
+  });
+
+  const isSkipped = (key: string): boolean => skipped.some((skip) => under(skip)(key));
 
   // One batch per locale, one `addTranslations` each, as a single visit to
   // every route would have produced. `preprocess` runs once per locale per
@@ -367,8 +444,9 @@ export const derive = async ({
 
   // A reference short of its own keys would report every other locale's as
   // extra.
-  const comparable = !failures.length && entries.length > 0;
-  const referenceKeys = new Set(Object.keys(table));
+  const comparable = !failures.length && (entries.length > 0 || referenceSkipped.length > 0);
+  // A namespace skipped in any locale is left out on both sides.
+  const referenceKeys = new Set(Object.keys(table).filter((key) => !isSkipped(key)));
   const fallback = config.fallbackLocale ? sanitize(config.fallbackLocale) : undefined;
 
   const compare = (locale: string): Diagnostic.T[] => {
@@ -390,7 +468,7 @@ export const derive = async ({
       }];
     }
 
-    const keys = Object.keys(probe.translations[locale] ?? {});
+    const keys = Object.keys(probe.translations[locale] ?? {}).filter((key) => !isSkipped(key));
     const own = new Set(keys);
     const missing = [...referenceKeys].filter((key) => !own.has(key)).sort();
     const extra = keys.filter((key) => !referenceKeys.has(key)).sort();
@@ -414,12 +492,14 @@ export const derive = async ({
 
   return {
     entries,
+    skipped: referenceSkipped,
     referenceLocale: reference,
     diagnostics: [
       ...missingExtractor,
       ...failures,
+      ...skips,
       ...thrown,
-      ...(entries.length ? [] : [{
+      ...(entries.length || referenceSkipped.length ? [] : [{
         code: 'no-keys' as const,
         message: `No translations were found for '${reference}'. The config names ${Object.keys(probe.translations).map((locale) => `'${locale}'`).join(', ') || 'no locale at all'}.`,
       }]),
