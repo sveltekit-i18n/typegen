@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -8,17 +9,23 @@ import type { Plugin } from 'vite';
 import { describe, expect, it, vi } from 'vitest';
 
 import { collect } from '../../src/collect.js';
+import type { Collected } from '../../src/collect.js';
 
 import { derive as deriveWith } from '../../src/derive.js';
 import type { DeriveInput } from '../../src/derive.js';
 import { emit, placeholder } from '../../src/emit.js';
 import { typegen } from '../../src/plugin.js';
 import type { Entry } from '../../src/types.js';
+import { writeIfChanged } from '../../src/write.js';
 
 // The plugin's own bookkeeping is driven in process; the collection it starts
 // is a real Vite pipeline, which `plugin.spec.ts` covers.
 vi.mock('../../src/collect.js', () => ({
   collect: vi.fn(async () => ({ collection: { entries: [], referenceLocale: 'en', diagnostics: [] }, dependencies: [] })),
+}));
+
+vi.mock('../../src/write.js', async (original) => ({
+  writeIfChanged: vi.fn((await original<typeof import('../../src/write.js')>()).writeIfChanged),
 }));
 
 const entry = (key: string, value: unknown, params: Entry['params'] = []): Entry => ({ key, value, params });
@@ -105,6 +112,32 @@ describe('emit', () => {
     expect(contents).toContain('a: (string) | (number);');
   });
 
+  it('reads a kind the table lacks as unknown, a prototype name included', () => {
+    const { contents } = emit([entry('x', 'x', [{ name: 'a', kind: 'constructor' as any }, { name: 'b', kind: 'toString' as any }])], 'en');
+
+    expect(contents).toContain('a: unknown;');
+    expect(contents).toContain('b: unknown;');
+  });
+
+  it('escapes a line terminator in a key and a parameter name', () => {
+    const { contents } = emit([entry('a\nb\rc', 'x', [{ name: 'd\ne' }])], 'en');
+
+    expect(contents).toContain("'a\\nb\\rc': {");
+    expect(contents).toContain("'d\\ne': unknown;");
+  });
+
+  it('escapes a line terminator in a namespace a pattern member names', () => {
+    const { contents } = emit([], 'en', [{ namespace: 'a\rb\nc', whole: false }]);
+
+    expect(contents).toContain('[key: `a\\rb\\nc.${string}`]: any;');
+  });
+
+  it('keeps a branch from closing the comment it is named in', () => {
+    const { contents } = emit([entry('x', 'x', [{ name: 'a', when: [{ param: 'p*/', branch: '*/' }] }])], 'en');
+
+    expect(contents).toContain('/** used when p*\\/ is `*\\/` */');
+  });
+
   it('marks an optional parameter optional', () => {
     const { contents } = emit([entry('x', 'x', [{ name: 'a', optional: true }])], 'en');
 
@@ -159,6 +192,18 @@ describe('emit', () => {
     expect(contents).toContain('/** 42 */');
     expect(contents).toContain('…');
     expect(contents.split('\n').every((line) => line.length < 200)).toBe(true);
+  });
+
+  it('leaves undescribed a value JSON cannot hold', () => {
+    const circular: Record<string, unknown> = {};
+
+    circular.self = circular;
+
+    const { contents } = emit([entry('big', 1n), entry('loop', circular)], 'en');
+
+    expect(contents).toContain("  'big': never;");
+    expect(contents).toContain("  'loop': never;");
+    expect(contents).not.toContain('/**');
   });
 
   it('produces the same bytes for the same catalogue, whatever the order', () => {
@@ -466,6 +511,26 @@ describe('derive', () => {
     expect(collection.diagnostics.map(({ code }) => code)).toEqual(['extractor-threw']);
     expect(collection.entries.find(({ key }) => key === 'bad')?.params).toBe(null);
     expect(collection.entries.find(({ key }) => key === 'good')?.params).toEqual([{ name: 'a' }]);
+  });
+
+  it.each([
+    ['a non-object', [null]],
+    ['a nameless parameter', [{ kind: 'string' }]],
+    ['a non-string name', [{ name: 1 }]],
+    ['a non-array condition', [{ name: 'a', when: 'count' }]],
+    ['a malformed condition', [{ name: 'a', when: [{ param: 'count' }] }]],
+  ])('keeps a key whose parameters the extractor returned as %s', async (_, params) => {
+    const collection = await derive({
+      probe: probeFactory(),
+      sanitizeLocales,
+      extract: ((value: any) => (value === 'bad' ? params : [{ name: 'a' }])) as any,
+      config: { initLocale: 'en', translations: { en: { good: 'fine', bad: 'bad' } } },
+    });
+
+    expect(collection.diagnostics.map(({ code }) => code)).toEqual(['extractor-threw']);
+    expect(collection.entries.find(({ key }) => key === 'bad')?.params).toBe(null);
+    expect(collection.entries.find(({ key }) => key === 'good')?.params).toEqual([{ name: 'a' }]);
+    expect(() => emit(collection.entries, collection.referenceLocale)).not.toThrow();
   });
 
   it('reports an empty catalogue instead of writing an empty schema silently', async () => {
@@ -917,6 +982,53 @@ describe('the build claim', () => {
       await once();
 
       expect(collect).toHaveBeenCalledTimes(2);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('a dev server\'s generation', () => {
+  it.each([
+    ['writes for a server that still serves', false],
+    ['leaves the artifact to the server that replaced it', true],
+  ])('%s', async (_, closed) => {
+    const root = await mkdtemp(resolve(tmpdir(), 'typegen-'));
+    const collection = { entries: [entry('late', 'late')], referenceLocale: 'en', diagnostics: [], skipped: [] };
+    let finish: (collected: Collected) => void = () => {};
+
+    vi.mocked(collect).mockClear().mockImplementationOnce(() => new Promise((done) => { finish = done; }));
+    vi.mocked(writeIfChanged).mockClear();
+
+    try {
+      const plugin = typegen({ config: 'src/i18n.js', outFile: 'schema.d.ts' });
+      const watcher = Object.assign(new EventEmitter(), { add: () => watcher });
+      const server = {
+        watcher,
+        config: { experimental: {}, logger: { warn: () => {}, error: () => {} } },
+        environments: { client: { pluginContainer: { buildStart: async () => {} } } },
+      };
+      const hook = (name: 'configResolved' | 'configureServer' | 'buildStart', self: unknown, ...args: unknown[]) => (
+        (plugin[name] as (...rest: unknown[]) => unknown).call(self, ...args)
+      );
+
+      hook('configResolved', {}, { root, command: 'serve' });
+      hook('configureServer', {}, server);
+      await hook('buildStart', { environment: { name: 'client' } });
+      await vi.waitFor(() => expect(collect).toHaveBeenCalledTimes(1));
+
+      // What chokidar does the moment a server starts to close.
+      if (closed) watcher.removeAllListeners();
+
+      finish({ collection, dependencies: [], reached: [] });
+      // Nothing is left past the collection but microtasks until a write
+      // starts, which is then waited on.
+      await new Promise((flushed) => { setTimeout(flushed, 0); });
+      await Promise.all(vi.mocked(writeIfChanged).mock.results.map(({ value }) => value));
+
+      const written = vi.mocked(writeIfChanged).mock.calls.map(([, contents]) => contents);
+
+      expect(written).toEqual(closed ? [placeholder()] : [placeholder(), emit(collection.entries, 'en').contents]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

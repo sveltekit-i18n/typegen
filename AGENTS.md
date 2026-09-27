@@ -56,7 +56,7 @@ Issues for this repo live in the `lib` tracker.
 |------|------|
 | `src/index.ts` | entry — the plugin and the public types |
 | `src/plugin.ts` | the Vite plugin: when to generate, what to report, the dev watch set |
-| `src/collect.ts` | the `runnerImport` driver — builds the nested pipeline and pins its environment |
+| `src/collect.ts` | the driver — resolves the app's config again and runs the collector in its server environment |
 | `src/collector.ts` | the source of the virtual module the collection runs as |
 | `src/derive.ts` | runs the loaders, reads the keys back and compares the other locales with the reference; a SEPARATE tsup entry |
 | `src/emit.ts` | pure: `ParamSpec[]` and values in, `.d.ts` text out |
@@ -66,7 +66,7 @@ Issues for this repo live in the `lib` tracker.
 | `tests/specs/plugin.spec.ts` | real `vite build` and dev server over the fixture app |
 | `tests/specs/typing.spec.ts` | compiles the emitted artifact against the published types |
 | `tests/fixtures/run.js` | runs the SHIPPED plugin over a fixture, per case, in its own process |
-| `tests/fixtures/app/` | a real SvelteKit app (adapter-node), several configs as several exports |
+| `tests/fixtures/app/` | a real SvelteKit app (adapter-node), several configs as several exports; it declares its dependencies, as the app's own server needs them declared to compile the core |
 | `tests/fixtures/typing/` | `ok.ts` / `bad.ts` / `degrades.ts` — deliberately broken TypeScript, excluded from `tsconfig` and from ESLint |
 
 ## Architecture you must respect
@@ -78,16 +78,85 @@ Issues for this repo live in the `lib` tracker.
   type-level counterpart to reach for either — a second implementation of
   `preprocess` as a type would diverge silently, in the direction where the
   types claim a key the runtime does not have.
-- **The collection is one `runnerImport` of a virtual module, under top-level
-  await.** The runner is closed the moment `runnerImport` returns, so a loader
-  called afterwards throws — everything has to happen before the exports are
-  read. That is also what makes the returned `dependencies` non-empty: lazy
-  loaders never evaluate their catalogues otherwise, and the dev watch set
-  would be empty.
-- **Build a FRESH `sveltekit()`, never reuse `resolved.plugins`.** Kit's
-  plugins share one closure; re-running their `configResolved` inside a nested
-  environment overwrites the config the outer build later reads, the adapter
-  never runs, and the build still exits zero.
+- **The collection runs in the app's own server environment.** The app's
+  config is resolved again, for `serve` and with the build's inline options,
+  mode and a cache of its own, and one runnable `ssr` environment is built
+  from it — no server, so no watcher, no `configureServer` and nothing of
+  Kit's dev handler. The config then resolves, pre-bundles and compiles
+  exactly as the app's pages do under `vite dev`; never copy resolve options
+  across by hand, as each copy misses a case the app handles (a pre-bundled
+  core is compiled by the Svelte plugin, a runner without the optimizer runs
+  it raw). The optimizer is started as a server's `listen()` would, and the
+  pre-bundles land under `cacheDir/typegen`, so the app's own are never
+  rewritten under a dev server it runs meanwhile.
+- **The collector is one virtual module, under top-level await.** The
+  environment is closed once the import returns, so a loader called afterwards
+  throws — everything has to happen before the exports are read. That is also
+  what makes the returned `dependencies` non-empty: lazy loaders never evaluate
+  their catalogues otherwise, and the dev watch set would be empty. A run names
+  what it evaluated (`dependencies`) and what its module graph holds
+  (`reached`): the graph also holds what a reached module could import and
+  never did, every file a dynamic import's glob matches, and it holds a module
+  once it has loaded, before its transform can fail — a catalogue a loader
+  could not transform is in it and not among what was evaluated. What lies in
+  `node_modules` or the cache is left out of both; what lies outside the root,
+  a linked workspace package, is not.
+- **The nested config evaluates the plugin again, and it stays inert there.**
+  The config is resolved for `serve`, so `buildStart` returns at once, and no
+  server is created, so `configureServer` never runs. It logs through a silent
+  logger of its own, never through `logLevel`: the Svelte plugin sets the level
+  of a logger it shares with the app's, and the build's warnings would go
+  quiet. The price is that the Svelte plugin's own messages about the nested
+  config print at the app's level — in a SvelteKit app there are none, while
+  a plain Svelte app without a `svelte.config.js` is told so, at `info`, on
+  every generation. Closing the environment waits for every request still open, so it is
+  given a few seconds, and a failure to close never hides why it failed to
+  start.
+- **A dev server generates once its own optimizers have loaded.** Vite clears
+  the stale pre-bundling directories of the first cache a process loads, so
+  the app's cache has to be that one. Vite loads them the moment the client's
+  plugins have started, on `listen()` or, behind a framework's server, once
+  the server is created. The plugin's own `buildStart` for the client is the
+  signal: the start is then Vite's, so it is joined and never made, a start
+  that failed is Vite's to report, and a server that never starts its client
+  never generates. A bundled dev server starts the client through its bundler,
+  after the optimizers. The server never waits for a generation. Its watcher is
+  the one sign of whether it still serves: chokidar drops the listeners the
+  moment `close()` starts, so a generation checks that the watcher still
+  carries the plugin's own before it writes, reports or watches anything, and
+  a closing server's watcher is never added to — that would open it again and
+  keep the process alive. A restarted server has a successor writing the same
+  file, so its own generation still in flight writes nothing. A plugin instance can
+  outlive its server (a restart with inline plugins), so nothing of this is
+  kept on the instance. A change that lands while a generation is queued or
+  running is kept until that generation names its watch set: the generation
+  may have read the file before it changed, and the first one has no watch set
+  to match it against. Only a generation without an error narrows the watch
+  set, to what it evaluated; one that failed, a `loader-threw` included, adds
+  everything it reached, and one that never reached the app
+  leaves it alone, since a failed one may not have reached the file whose next
+  change fixes it. The config is answered whatever the set holds, and so are an
+  addition and a removal: a branch switch removes a file and brings it back.
+  The watch set is named before the artifact is written, so a file outside the
+  root is added to the watcher before anything announces the generation. All
+  of it is answered only while Vite's watcher follows the file, and chokidar
+  decides that: it starts a watch asynchronously, follows nothing of the root
+  on a bundled dev server, and can lose a watch whose directory is removed.
+  A missing path is never added to the watcher to cover a gap: chokidar
+  watches it through its parent instead, and the server's own watch of a
+  directory created later goes blind. The README's `vite dev` limit states
+  the gaps as one rule, with the remedy (save the config, else restart);
+  another watcher edge case belongs under that rule, not in more code.
+- **A pre-bundled package is read back to its installed file.** The core is
+  resolved from the package the config reached it through, and a bundle in the
+  cache resolves from the app root instead; the optimizer's metadata maps it
+  back, for the resolution and for the location a diagnostic names.
+- **Build a FRESH `sveltekit()` only where the nested config lacks Kit, never
+  reuse `resolved.plugins`.** Kit's plugins share one closure; re-running
+  their `configResolved` for the nested config overwrites the config the outer
+  build later reads, the adapter never runs, and the build still exits zero.
+  A config file supplies its own; a programmatic build without one gets a
+  fresh copy.
 - **The probe is built from the core the config runs on.** The collector
   watches the config's imports resolve and asks for the core afterwards, from
   a virtual module: base as `sveltekit-i18n` resolves it when the config
@@ -95,12 +164,6 @@ Issues for this repo live in the `lib` tracker.
   root, `sveltekit-i18n` first, when it imports neither. The app root need not
   resolve base at all (pnpm), and a stray root copy of another version must
   not type the app.
-- **The core is inlined (`resolve.noExternal`: `sveltekit-i18n` and every
-  `@sveltekit-i18n/` package), and so is `esm-env`.** base ships its rune
-  modules uncompiled for the consumer's bundler, so externalized it reaches the
-  host runtime with `$state` undefined — through `sveltekit-i18n` too.
-  Externalized `esm-env` makes `$app/environment.dev` `undefined` rather than a
-  boolean, which a config branching on it reads as production by accident.
 - **One build collects once.** SvelteKit builds its client inside the server
   build, from the config file loaded again, so a second instance of the plugin
   starts while the first build is open. The artifact being generated is held
@@ -109,11 +172,9 @@ Issues for this repo live in the `lib` tracker.
   another plugin's failing one cannot skip it), its `buildEnd` with an error or
   its watcher's next change, so the next build — a watcher's round, a
   programmatic one — generates again.
-- **`NODE_ENV` is stated for the call and put back.** `runnerImport` always
-  resolves as `serve`, so a config branching on `dev` would hand a production
-  build the development key set — and `runnerImport` rewrites the host's
-  `NODE_ENV` on the way through, which the app's own build would otherwise
-  inherit.
+- **`NODE_ENV` is the build's.** Vite states it before any hook runs and
+  never overrides one that is set, so the nested config reads the build's:
+  `dev` is `false` in a production build, as in the app's own server bundle.
 - **Never derive through `loadTranslations`.** `fetchTranslations` swallows a
   throwing loader by contract, which would turn one broken loader into a
   silently truncated schema. The loaders are called here, each against a
@@ -135,7 +196,14 @@ Issues for this repo live in the `lib` tracker.
   watches, and an unconditional write regenerates forever.
 - **A failed generation is reported, never thrown.** The artifact is types; a
   build that cannot be typed still deploys. An error code keeps the previous
-  artifact rather than writing a key set short of the real one.
+  artifact rather than writing a key set short of the real one. A write that
+  fails is reported as one, never as a config that could not be read.
+- **The extractor's output is read at the boundary.** It is the app's parser:
+  a parameter list whose entry has no string `name`, or a `when` other than a
+  list of string `param` and `branch` pairs, costs that key its payload as a
+  throw would (`extractor-threw`). A `kind` the table lacks, a prototype name
+  included, reads as `unknown`. A key, a name or a namespace is written with
+  its line terminators escaped.
 - **Keys-only mode emits `any`, not `never`.** `never` is how the core spells a
   message that takes NO payload, so it rejects every legal call that passes one.
 - **`ParamSpec.values` never closes a union.** The contract calls it a hint;

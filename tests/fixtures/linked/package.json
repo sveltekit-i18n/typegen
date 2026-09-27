@@ -1,0 +1,10 @@
+{
+  "name": "@fixture/i18n",
+  "private": true,
+  "type": "module",
+  "exports": "./index.js",
+  "dependencies": {
+    "sveltekit-i18n": "*",
+    "which-copy": "*"
+  }
+}

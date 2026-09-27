@@ -19,6 +19,18 @@ type Config = {
   sanitizeLocales?: boolean | ((locale: string) => string);
 };
 
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+
+// The extractor is the app's parser, so its output is read at this boundary:
+// `emit` takes a name and a condition as the contract spells them.
+const isParamSpec = (spec: unknown): spec is Parser.ParamSpec => (
+  isObject(spec)
+  && typeof spec.name === 'string'
+  && (spec.when === undefined || (Array.isArray(spec.when) && spec.when.every((one) => (
+    isObject(one) && typeof one.param === 'string' && typeof one.branch === 'string'
+  ))))
+);
+
 export type ResolveLoaders = (loaders: readonly any[] | undefined, sanitizeLocales?: any) => readonly Loader[];
 
 export type Probe = {
@@ -428,13 +440,19 @@ export const derive = async ({
 
     if (!extract) return { entry: { key, value, params: null } };
 
+    const unread = (message: string, cause?: unknown) => ({
+      entry: { key, value, params: null },
+      thrown: { code: 'extractor-threw' as const, message, cause },
+    });
+
     try {
-      return { entry: { key, value, params: [...extract(value as any, { key, locale: reference })] } };
+      const params: unknown[] = [...extract(value as any, { key, locale: reference })];
+
+      if (!params.every(isParamSpec)) return unread(`The extractor returned no parameter list for '${key}'.`);
+
+      return { entry: { key, value, params } };
     } catch (cause) {
-      return {
-        entry: { key, value, params: null },
-        thrown: { code: 'extractor-threw', message: `The extractor threw on '${key}'.`, cause },
-      };
+      return unread(`The extractor threw on '${key}'.`, cause);
     }
   };
 

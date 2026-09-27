@@ -13,10 +13,13 @@ const KINDS: Record<Parser.ParamKind, string> = {
   function: '(chunks: string[]) => string',
 };
 
-const quote = (name: string): string => `'${name.split('\\').join('\\\\').split("'").join("\\'")}'`;
+// A line terminator would end the literal, so it is escaped as well.
+const quote = (name: string): string => `'${name.split('\\').join('\\\\').split("'").join("\\'").split('\n').join('\\n').split('\r').join('\\r')}'`;
 
 // A namespace is any string, and a template type reads a backtick and `${` too.
-const template = (text: string): string => text.split('\\').join('\\\\').split('`').join('\\`').split('${').join('\\${');
+// A raw line terminator would be normalized, a carriage return read as a line
+// feed, so both are escaped.
+const template = (text: string): string => text.split('\\').join('\\\\').split('`').join('\\`').split('${').join('\\${').split('\n').join('\\n').split('\r').join('\\r');
 
 const SKIPPED_NOTE = '  /** Not read: its loader cannot run outside the app. */';
 
@@ -34,7 +37,7 @@ const property = (name: string, optional: boolean): string => (
 
 const typeOf = ({ kind }: Parser.ParamSpec): string => {
   const kinds = kind === undefined ? ['unknown' as const] : [kind].flat();
-  const named = [...new Set(kinds.map((one) => KINDS[one] ?? 'unknown'))];
+  const named = [...new Set(kinds.map((one) => (Object.hasOwn(KINDS, one) ? KINDS[one] : 'unknown')))];
 
   // A union of function types needs parentheses around each member; wrapping
   // every member is the same type and one rule instead of two.
@@ -43,24 +46,35 @@ const typeOf = ({ kind }: Parser.ParamSpec): string => {
 
 const MAX_COMMENT = 120;
 
+// `*/` would close the comment; the escape renders as itself.
+const comment = (text: string): string => text.split('*/').join('*\\/');
+
+// A translation value is arbitrary data, and JSON holds most of it — not a
+// BigInt, not a cycle. What it cannot hold goes undescribed.
+const json = (value: unknown): string | undefined => {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return undefined;
+  }
+};
+
 /**
  * The reference value, one line, short enough to read in a completion popup.
- * A translation value is arbitrary data, so a non-string is shown as JSON.
+ * A non-string is shown as JSON.
  */
 const describe = (value: unknown): string | undefined => {
-  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  const text = typeof value === 'string' ? value : json(value);
 
   if (!text) return undefined;
 
   const flat = text.split(/\s+/).join(' ').trim();
-  const clipped = flat.length > MAX_COMMENT ? `${flat.slice(0, MAX_COMMENT - 1)}…` : flat;
 
-  // `*/` would close the comment; the escape renders as itself.
-  return clipped.split('*/').join('*\\/');
+  return comment(flat.length > MAX_COMMENT ? `${flat.slice(0, MAX_COMMENT - 1)}…` : flat);
 };
 
 const condition = ({ when }: Parser.ParamSpec): string | undefined => (
-  when?.length ? `used when ${when.map(({ param, branch }) => `${param} is \`${branch}\``).join(' and ')}` : undefined
+  when?.length ? comment(`used when ${when.map(({ param, branch }) => `${param} is \`${branch}\``).join(' and ')}`) : undefined
 );
 
 const payloadOf = (params: readonly Parser.ParamSpec[], indent: string): string => {
