@@ -58,3 +58,9 @@ export const listed = {
     ),
   }],
 };
+
+// A `sanitizeLocales` a second pass does not leave alone.
+export const sanitized = {
+  ...config,
+  sanitizeLocales: (locale) => ({ en: 'en-US' })[locale] ?? locale.toLowerCase(),
+};

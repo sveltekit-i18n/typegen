@@ -37,7 +37,10 @@ The base range is `^3.0.0 || ^3.1.0-next.0`: `sveltekit-i18n` 3.0 pins base
 3.0.0 exactly, so an app on it has no 3.1 core to offer. The loaders are read
 through the core's own `resolveLoaders` when the app's copy has one (3.1), and
 through a local copy of 3.0's reading otherwise; the collector imports the
-core's `/utils` as a namespace so a 3.0 core still links.
+core's `/utils` as a namespace so a 3.0 core still links. That copy sanitizes
+each locale once, as 3.1 does: 3.0 sanitizes a requested locale a second time,
+which only a `sanitizeLocales` that changes its own output tells apart, and
+there it skips loaders the config states.
 
 The suite runs on Node only. Unlike the runtime packages there are no Bun and
 Deno legs: this never ships to a consumer's runtime. Windows IS in the matrix,
