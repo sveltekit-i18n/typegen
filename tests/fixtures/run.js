@@ -10,25 +10,70 @@ import typegen from '../../dist/index.js';
 // process are not independent — and the plugin's whole job happens inside a
 // nested pipeline of exactly those plugins. A spec therefore spawns this
 // script per case and reads the result off the filesystem and this output.
-const { mode, root, configFile, ...options } = JSON.parse(process.argv[2]);
+const { mode, root, configFile, vite = {}, listen = false, restart = false, close = false, neighbours: named = [], ...options } = JSON.parse(process.argv[2]);
 
 // SvelteKit reads `svelte.config.js` and the app template off the working
 // directory rather than off Vite's root, so the app has to be entered the way
 // its own scripts enter it.
 process.chdir(root);
 
+// Vitest hands its own `NODE_ENV` down; a build run from a shell has none, and
+// Vite then states the one the command implies.
+delete process.env.NODE_ENV;
+
 // A config file carries the plugin itself, as an app's does; it reads the
 // options off the environment.
 process.env.TYPEGEN_OPTIONS = JSON.stringify(options);
 
-const plugins = configFile ? [] : [typegen(options)];
+// A plugin after this one, as an app's own server setup has them.
+const neighbours = {
+  // One whose server setup awaits real work, as an adapter's emulation does.
+  slow: { name: 'slow', configureServer: () => new Promise((done) => { setTimeout(done, 300); }) },
+  // One that fails to start.
+  failing: { name: 'failing', buildStart() { if (this.environment.name === 'client') throw new Error('Failed to start.'); } },
+  // One whose server setup fails once the other hooks have returned.
+  failingLate: { name: 'failing-late', configureServer: () => () => { throw new Error('Failed to set up.'); } },
+  // One that takes its time to close, as an adapter's emulation can.
+  slowClose: { name: 'slow-close', buildEnd() { if (this.environment?.name === 'client') return new Promise((done) => { setTimeout(done, 5_000); }); } },
+  // One that tells whenever the client's plugins start.
+  counted: { name: 'counted', buildStart() { if (this.environment?.name === 'client') console.log('client started'); } },
+};
+
+const plugins = configFile ? [] : [typegen(options), ...named.map((name) => neighbours[name])];
 
 if (mode === 'serve') {
-  const server = await createServer({ root, plugins, logLevel: 'warn', server: { middlewareMode: true } });
+  // Behind a framework's own server by default; `listen` starts Vite's.
+  const server = await createServer({ ...vite, root, plugins, logLevel: 'warn', server: { middlewareMode: !listen } }).catch((error) => {
+    // A framework that handles its server failing to start keeps running.
+    console.log(`caught: ${error.message}`);
+  });
+
+  if (!server) {
+    // An unhandled rejection would have ended the process by the next task.
+    await new Promise((next) => { setTimeout(next, 0); });
+    console.log('survived');
+    process.exit(0);
+  }
+
+  if (listen) await server.listen(0);
+
+  // What a changed `.env` or the `r` shortcut does, with the same plugins.
+  if (restart) await server.restart();
+
+  // A server closed at once leaves nothing behind to keep the process alive.
+  if (close) {
+    await server.close();
+    console.log('closed');
+  }
 
   process.on('SIGTERM', () => void server.close().then(() => process.exit(0)));
 
   console.log('ready');
 } else {
-  await build({ root, plugins, logLevel: 'warn', ...(configFile ? { configFile: resolve(root, configFile) } : {}) });
+  const { fetch } = globalThis;
+
+  await build({ ...vite, root, plugins, logLevel: 'warn', ...(configFile ? { configFile: resolve(root, configFile) } : {}) });
+
+  // Nothing of the collection is left behind in the process that built.
+  if (globalThis.fetch !== fetch) console.log('fetch was replaced');
 }

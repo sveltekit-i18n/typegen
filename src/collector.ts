@@ -53,8 +53,8 @@ const extractor = (options?: Options.ExtractParams): string[] => {
 /**
  * The module the collection runs as.
  *
- * `runnerImport` closes its module runner the moment it returns, so a loader
- * invoked afterwards throws. Everything therefore happens at the top level,
+ * The environment it runs in is closed the moment the import returns, so a
+ * loader invoked afterwards throws. Everything therefore happens at the top level,
  * under `await`, and only the finished result is read off the exports.
  *
  * The core is the copy the config runs on, and the extractor is imported by

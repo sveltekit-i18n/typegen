@@ -64,3 +64,29 @@ export const sanitized = {
   ...config,
   sanitizeLocales: (locale) => ({ en: 'en-US' })[locale] ?? locale.toLowerCase(),
 };
+
+export const moded = {
+  initLocale: 'en',
+  loaders: [{ namespace: 'mode', locale: 'en', loader: async () => ({ [import.meta.env.VITE_WHERE ?? 'unset']: import.meta.env.MODE }) }],
+};
+
+// A loader that holds on once it has read its catalogue, until a spec lets it
+// go, so the catalogue can change under a generation that already read it.
+export const gated = {
+  initLocale: 'en',
+  loaders: [{
+    namespace: 'home',
+    locale: 'en',
+    loader: async () => {
+      const data = (await import('./translations/home/en.json')).default;
+      const { access, writeFile } = await import('node:fs/promises');
+      const gate = process.env.TYPEGEN_GATE;
+
+      await writeFile(`${gate}.read`, '');
+
+      while (!await access(`${gate}.go`).then(() => true, () => false)) await new Promise((next) => { setTimeout(next, 25); });
+
+      return data;
+    },
+  }],
+};
