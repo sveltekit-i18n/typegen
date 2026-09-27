@@ -46,6 +46,8 @@ export type DeriveInput = {
    * none, and its loaders are read here instead.
    */
   resolveLoaders?: ResolveLoaders;
+  /** Whether the other locales are loaded and compared with the reference. Defaults to `true`. */
+  checkLocales?: boolean;
   extract: Parser.ExtractParams | null;
   /** Why there is no extractor although one was asked for. */
   extractorFailure?: { message: string; cause?: unknown } | null;
@@ -169,6 +171,16 @@ const pickReference = (config: Config, loaders: readonly Loader[], sanitize: (lo
 // A namespace may be a Symbol, which a template literal refuses to interpolate.
 const loaderName = ({ locale, namespace }: Loader): string => `'${locale}' > '${String(namespace)}'`;
 
+const LISTED = 10;
+
+const listKeys = (keys: readonly string[]): string => {
+  const named = keys.slice(0, LISTED).map((key) => `'${key}'`).join(', ');
+
+  return keys.length > LISTED ? `${named} and ${keys.length - LISTED} more` : named;
+};
+
+const plural = (count: number): string => `${count} ${count === 1 ? 'key' : 'keys'}`;
+
 /**
  * Runs the config's loaders and reads back the keys the core would hold.
  *
@@ -177,6 +189,10 @@ const loaderName = ({ locale, namespace }: Loader): string => `'${locale}' > '${
  * them. A loader that throws is reported rather than skipped — the core
  * swallows one to keep a page rendering, but a key set silently short of the
  * real one would make the types lie.
+ *
+ * The other locales' loaders run alongside the reference's, so the key sets
+ * can be compared. What they find is only reported: the schema follows the
+ * reference alone.
  */
 export const derive = async ({
   probe,
@@ -185,6 +201,7 @@ export const derive = async ({
   configExports,
   sanitizeLocales,
   resolveLoaders,
+  checkLocales = true,
   extract,
   extractorFailure,
   referenceLocale,
@@ -223,11 +240,17 @@ export const derive = async ({
   // own, before any load.
   if (config.translations) probe.addTranslations(config.translations);
 
-  const matching = loaders.filter(({ locale, loader }) => typeof loader === 'function' && locale === reference);
+  const callable = loaders.filter(({ loader }) => typeof loader === 'function');
+
+  // A locale only seeded is not compared: a seed is often the same table in
+  // every locale (the names of the languages), not a catalogue of its own.
+  const locales = [reference, ...(checkLocales ? callable.map(({ locale }) => locale).filter((locale) => locale !== reference) : [])]
+    .filter((locale, index, all) => all.indexOf(locale) === index);
 
   type Loaded = { descriptor: Loader; data?: unknown; failure?: { cause: unknown } };
 
-  const loaded = await Promise.all(matching.map(async (descriptor): Promise<Loaded> => {
+  // Every locale at once, so the whole collection waits one deadline at most.
+  const loaded = await Promise.all(callable.filter(({ locale }) => locales.includes(locale)).map(async (descriptor): Promise<Loaded> => {
     const { locale, namespace } = descriptor;
 
     try {
@@ -237,21 +260,22 @@ export const derive = async ({
     }
   }));
 
-  const failures = loaded.reduce<Diagnostic.T[]>((acc, { descriptor, failure }) => (
-    failure ? [...acc, {
-      code: 'loader-threw' as const,
-      message: `The ${loaderName(descriptor)} loader threw, so its keys are missing.`,
-      cause: failure.cause,
-    }] : acc
-  ), []);
+  const failedIn = (locale: string) => loaded.filter(({ descriptor, failure }) => failure && descriptor.locale === locale);
 
-  // One batch, one `addTranslations`, as a single visit to every route would
-  // have produced. `preprocess` runs once per locale per call, so a custom one
-  // that only looks at the leaf it is given sees exactly what the app gives it;
-  // one whose output depends on the siblings in the batch is grouping
-  // dependent, and no grouping reproduces every route an app can take.
-  const batch = loaded.reduce<Record<string, unknown>>((acc, { descriptor, data }) => {
-    if (!data) return acc;
+  const failures = failedIn(reference).map(({ descriptor, failure }): Diagnostic.T => ({
+    code: 'loader-threw',
+    message: `The ${loaderName(descriptor)} loader threw, so its keys are missing.`,
+    cause: failure!.cause,
+  }));
+
+  // One batch per locale, one `addTranslations` each, as a single visit to
+  // every route would have produced. `preprocess` runs once per locale per
+  // call, so a custom one that only looks at the leaf it is given sees exactly
+  // what the app gives it; one whose output depends on the siblings in the
+  // batch is grouping dependent, and no grouping reproduces every route an app
+  // can take.
+  const batchOf = (locale: string): Record<string, unknown> => loaded.reduce<Record<string, unknown>>((acc, { descriptor, data }) => {
+    if (!data || descriptor.locale !== locale) return acc;
 
     // Keyed as the core keys it, which spells an absent 3.0 `key` 'undefined'.
     const name = descriptor.namespace as string;
@@ -259,7 +283,25 @@ export const derive = async ({
     return { ...acc, [name]: Object.hasOwn(acc, name) ? merge(acc[name], data) : data };
   }, {});
 
-  if (Object.keys(batch).length) probe.addTranslations({ [reference]: batch });
+  const apply = (locale: string): void => {
+    const batch = batchOf(locale);
+
+    if (Object.keys(batch).length) probe.addTranslations({ [locale]: batch });
+  };
+
+  apply(reference);
+
+  // Another locale's catalogue is only compared: one the app's `preprocess`
+  // cannot take costs that comparison, not the schema.
+  const unapplied = new Map<string, unknown>();
+
+  locales.filter((locale) => locale !== reference).forEach((locale) => {
+    try {
+      apply(locale);
+    } catch (cause) {
+      unapplied.set(locale, cause);
+    }
+  });
 
   const table = probe.translations[reference] ?? {};
 
@@ -284,6 +326,53 @@ export const derive = async ({
   const entries = read.map(({ entry }) => entry);
   const thrown = read.reduce<Diagnostic.T[]>((acc, { thrown: one }) => (one ? [...acc, one] : acc), []);
 
+  // A reference short of its own keys would report every other locale's as
+  // extra.
+  const comparable = !failures.length && entries.length > 0;
+  const referenceKeys = new Set(Object.keys(table));
+  const fallback = config.fallbackLocale ? sanitize(config.fallbackLocale) : undefined;
+
+  const compare = (locale: string): Diagnostic.T[] => {
+    if (unapplied.has(locale)) {
+      return [{
+        code: 'locale-unchecked',
+        message: `The '${locale}' catalogue could not be applied, so '${locale}' was not compared with '${reference}'.`,
+        cause: unapplied.get(locale),
+      }];
+    }
+
+    const [failed] = failedIn(locale);
+
+    if (failed) {
+      return [{
+        code: 'locale-unchecked',
+        message: `The ${loaderName(failed.descriptor)} loader threw, so '${locale}' was not compared with '${reference}'.`,
+        cause: failed.failure!.cause,
+      }];
+    }
+
+    const keys = Object.keys(probe.translations[locale] ?? {});
+    const own = new Set(keys);
+    const missing = [...referenceKeys].filter((key) => !own.has(key)).sort();
+    const extra = keys.filter((key) => !referenceKeys.has(key)).sort();
+    const fallbackTable = fallback && fallback !== locale ? probe.translations[fallback] ?? {} : {};
+    const covered = missing.filter((key) => Object.hasOwn(fallbackTable, key)).length;
+    const rendered = covered === 0 ? '' : ` ${covered === missing.length ? 'They' : `${covered} of them`} render from '${fallback}'.`;
+
+    return [
+      ...(missing.length ? [{
+        code: 'key-missing' as const,
+        message: `'${locale}' lacks ${plural(missing.length)} the reference '${reference}' has: ${listKeys(missing)}.${rendered}`,
+      }] : []),
+      ...(extra.length ? [{
+        code: 'key-extra' as const,
+        message: `'${locale}' has ${plural(extra.length)} '${reference}' lacks, so no type names them: ${listKeys(extra)}.`,
+      }] : []),
+    ];
+  };
+
+  const compared = comparable ? locales.filter((locale) => locale !== reference).flatMap(compare) : [];
+
   return {
     entries,
     referenceLocale: reference,
@@ -295,6 +384,7 @@ export const derive = async ({
         code: 'no-keys' as const,
         message: `No translations were found for '${reference}'. The config names ${Object.keys(probe.translations).map((locale) => `'${locale}'`).join(', ') || 'no locale at all'}.`,
       }]),
+      ...compared,
     ],
   };
 };

@@ -141,8 +141,9 @@ export const typegen = (options: Options.T): Plugin => {
       const generatedId = posix(outFile);
 
       // What a regeneration answers to: the config module and every catalogue
-      // the reference locale's loaders actually reached. The artifact itself is
-      // left out — it lands inside the tree the server watches.
+      // the loaders actually reached, the other locales' included. The
+      // artifact itself is left out — it lands inside the tree the server
+      // watches.
       const watched = new Set<string>();
 
       const remember = (dependencies: readonly string[]): void => {

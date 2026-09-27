@@ -89,6 +89,13 @@ describe('a production build', () => {
     expect(contents).toContain('gender?: unknown;');
   });
 
+  it('finds nothing to report when the locales agree', async () => {
+    const output = await build({ extractParams: CURLY });
+
+    expect(output).not.toContain('[key-');
+    expect(output).not.toContain('[locale-unchecked]');
+  });
+
   it('leaves the app\'s own output alone', async () => {
     // The collection runs a second SvelteKit pipeline inside the first. Reusing
     // the outer build's plugin instances instead overwrites the config they
@@ -187,9 +194,25 @@ describe('a build that cannot derive the keys', () => {
     expect(await artifact()).toBe(STALE);
   });
 
-  it('reads a loader that lists its locales through the app\'s core', async () => {
-    await build({ configExport: 'listed' });
+  it('compares the other locales, and writes the schema whatever they lack', async () => {
+    const output = await build({ configExport: 'partial' });
 
+    expect(output).toContain("'cs' lacks 6 keys the reference 'en' has: 'home.bullets.0', 'home.bullets.1', 'home.choice', 'home.count', 'home.greeting', 'home.odd key'. [key-missing]");
+    expect(output).toContain("'cs' has 1 key 'en' lacks, so no type names them: 'home.extra'. [key-extra]");
+    expect(await artifact()).toContain("'home.greeting': any;");
+  });
+
+  it('writes the schema when another locale\'s loader throws', async () => {
+    const output = await build({ configExport: 'unchecked' });
+
+    expect(output).toContain("The 'cs' > 'gone' loader threw, so 'cs' was not compared with 'en'. [locale-unchecked]");
+    expect(await artifact()).toContain("'home.title': any;");
+  });
+
+  it('reads a loader that lists its locales through the app\'s core', async () => {
+    const output = await build({ configExport: 'listed' });
+
+    expect(output).not.toContain('[key-');
     expect(await artifact()).toContain("'home.title': any;");
     expect(await artifact()).toContain("'about.title': any;");
   });

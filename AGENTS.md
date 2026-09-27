@@ -53,7 +53,7 @@ Issues for this repo live in the `lib` tracker.
 | `src/plugin.ts` | the Vite plugin: when to generate, what to report, the dev watch set |
 | `src/collect.ts` | the `runnerImport` driver — builds the nested pipeline and pins its environment |
 | `src/collector.ts` | the source of the virtual module the collection runs as |
-| `src/derive.ts` | runs the loaders and reads the keys back; a SEPARATE tsup entry |
+| `src/derive.ts` | runs the loaders, reads the keys back and compares the other locales with the reference; a SEPARATE tsup entry |
 | `src/emit.ts` | pure: `ParamSpec[]` and values in, `.d.ts` text out |
 | `src/write.ts` | `writeIfChanged` |
 | `src/types.ts` | public types and the diagnostic codes |

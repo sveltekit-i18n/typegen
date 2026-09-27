@@ -102,6 +102,7 @@ export const collect = async ({ options, resolved }: CollectInput): Promise<{ co
     derive: new URL('./derive.js', import.meta.url).href,
     extractParams: options.extractParams,
     referenceLocale: options.referenceLocale,
+    checkLocales: options.checkLocales,
   });
 
   const { module, dependencies } = await asEnvironment(resolved.command === 'build', async () => (

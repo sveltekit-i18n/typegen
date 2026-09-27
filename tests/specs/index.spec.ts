@@ -290,14 +290,15 @@ describe('derive', () => {
     expect(collection.entries.map(({ key }) => key)).toEqual(['a']);
   });
 
-  it('runs only the reference locale', async () => {
+  it('runs only the reference locale when told not to compare', async () => {
     const probe = probeFactory();
     const ran: string[] = [];
 
-    await derive({
+    const collection = await derive({
       probe,
       sanitizeLocales,
       extract: null,
+      checkLocales: false,
       config: {
         initLocale: 'en',
         loaders: ['en', 'cs'].map((locale) => ({
@@ -306,13 +307,14 @@ describe('derive', () => {
           loader: async () => {
             ran.push(locale);
 
-            return { title: locale };
+            return locale === 'en' ? { title: locale } : {};
           },
         })),
       },
     });
 
     expect(ran).toEqual(['en']);
+    expect(collection.diagnostics).toEqual([]);
   });
 
   it('reports a throwing loader instead of swallowing it', async () => {
@@ -470,7 +472,7 @@ describe('derive', () => {
             return { title: `${props.locale}/${props.namespace}` };
           },
         }],
-      });
+      }, { checkLocales: false });
 
       expect(collection.entries.map(({ key, value }) => [key, value]).sort()).toEqual([
         ['about.title', 'en/about'],
@@ -482,6 +484,156 @@ describe('derive', () => {
       ]);
       expect(codes(collection)).toEqual([]);
     });
+
+    it('reports the keys another locale lacks, and those only it has', async () => {
+      const keys = (count: number, prefix: string) => Object.fromEntries(Array.from({ length: count }, (_, i) => [`${prefix}${String(i).padStart(2, '0')}`, 'x']));
+      const collection = await run({
+        initLocale: 'en',
+        loaders: [
+          { namespace: 'n', locale: 'en', loader: async () => ({ ...keys(14, 'k'), shared: 'x' }) },
+          { namespace: 'n', locale: 'cs', loader: async () => ({ ...keys(2, 'k'), shared: 'x', only: 'x' }) },
+          { namespace: 'n', locale: 'de', loader: async () => ({ ...keys(14, 'k'), shared: 'x' }) },
+        ],
+      });
+
+      expect(collection.entries).toHaveLength(15);
+      expect(codes(collection)).toEqual(['key-missing', 'key-extra']);
+
+      const [missing, extra] = collection.diagnostics;
+
+      expect(missing.message).toBe("'cs' lacks 12 keys the reference 'en' has: 'n.k02', 'n.k03', 'n.k04', 'n.k05', 'n.k06', 'n.k07', 'n.k08', 'n.k09', 'n.k10', 'n.k11' and 2 more.");
+      expect(extra.message).toBe("'cs' has 1 key 'en' lacks, so no type names them: 'n.only'.");
+    });
+
+    it('says a missing key renders from the fallback locale', async () => {
+      const collection = await run({
+        initLocale: 'cs',
+        fallbackLocale: 'en',
+        loaders: [
+          { namespace: 'n', locale: 'cs', loader: async () => ({ a: 'x', b: 'x' }) },
+          { namespace: 'n', locale: 'en', loader: async () => ({ a: 'x', b: 'x' }) },
+          { namespace: 'n', locale: 'de', loader: async () => ({ a: 'x' }) },
+        ],
+      });
+
+      expect(collection.diagnostics.map(({ message }) => message)).toEqual(["'de' lacks 1 key the reference 'cs' has: 'n.b'. They render from 'en'."]);
+    });
+
+    it('leaves a locale whose loader threw uncompared, and writes the schema', async () => {
+      const collection = await run({
+        initLocale: 'en',
+        loaders: [
+          { namespace: 'n', locale: 'en', loader: async () => ({ a: 'x' }) },
+          { namespace: 'n', locale: 'cs', loader: async () => { throw new Error('offline'); } },
+          { namespace: 'm', locale: 'cs', loader: async () => ({ other: 'x' }) },
+        ],
+      });
+
+      expect(codes(collection)).toEqual(['locale-unchecked']);
+      expect(collection.diagnostics[0].message).toBe("The 'cs' > 'n' loader threw, so 'cs' was not compared with 'en'.");
+      expect(collection.entries.map(({ key }) => key)).toEqual(['n.a']);
+    });
+
+    it('compares nothing when the reference itself is short of keys', async () => {
+      const collection = await run({
+        initLocale: 'en',
+        loaders: [
+          { namespace: 'n', locale: 'en', loader: async () => ({ a: 'x' }) },
+          { namespace: 'm', locale: 'en', loader: async () => { throw new Error('offline'); } },
+          { namespace: 'm', locale: 'cs', loader: async () => ({ b: 'x' }) },
+        ],
+      });
+
+      expect(codes(collection)).toEqual(['loader-threw']);
+    });
+
+    it('does not compare a locale that is only seeded', async () => {
+      const collection = await run({
+        initLocale: 'en',
+        translations: { en: { lang: { en: 'English', cs: 'Čeština' } }, de: { lang: { de: 'Deutsch' } } },
+        loaders: [{ namespace: 'n', locale: 'en', loader: async () => ({ a: 'x' }) }],
+      });
+
+      expect(codes(collection)).toEqual([]);
+    });
+
+    it('compares the keys the core holds, array items included', async () => {
+      const collection = await run({
+        initLocale: 'en',
+        loaders: [
+          { namespace: 'n', locale: 'en', loader: async () => ({ bullets: ['a', 'b', 'c'] }) },
+          { namespace: 'n', locale: 'cs', loader: async () => ({ bullets: ['a', 'b'] }) },
+        ],
+      });
+
+      expect(collection.diagnostics.map(({ message }) => message)).toEqual(["'cs' lacks 1 key the reference 'en' has: 'n.bullets.2'."]);
+    });
+
+    it('runs every locale at once, so one deadline bounds them all', async () => {
+      // The reference's loader settles only once the other locale's has
+      // started: run one after the other, the collection would miss the
+      // deadline instead.
+      let started = (): void => {};
+      const other = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+
+      const collection = await run({
+        initLocale: 'en',
+        loaders: [
+          { namespace: 'n', locale: 'en', loader: async () => { await other; return { a: 'x' }; } },
+          { namespace: 'n', locale: 'cs', loader: () => { started(); return new Promise(() => {}); } },
+        ],
+      }, { deadline: 1_000 });
+
+      expect(codes(collection)).toEqual(['locale-unchecked']);
+      expect(collection.entries.map(({ key }) => key)).toEqual(['n.a']);
+    });
+    it('leaves a locale whose catalogue the core cannot take uncompared, and writes the schema', async () => {
+      const probe = probeFactory();
+      const add = probe.addTranslations.bind(probe);
+
+      probe.addTranslations = (input: any) => {
+        if (input.cs) throw new Error('malformed');
+
+        add(input);
+      };
+
+      const collection = await derive({
+        probe,
+        sanitizeLocales,
+        extract: null,
+        config: {
+          initLocale: 'en',
+          loaders: [
+            { namespace: 'n', locale: 'en', loader: async () => ({ a: 'x' }) },
+            { namespace: 'n', locale: 'cs', loader: async () => ({ a: null }) },
+          ],
+        },
+      });
+
+      expect(collection.diagnostics.map(({ code, message }) => [code, message])).toEqual([
+        ['locale-unchecked', "The 'cs' catalogue could not be applied, so 'cs' was not compared with 'en'."],
+      ]);
+      expect(collection.entries.map(({ key }) => key)).toEqual(['n.a']);
+    });
+
+    it('names only the missing keys the fallback locale has', async () => {
+      const collection = await run({
+        initLocale: 'en',
+        fallbackLocale: 'de',
+        loaders: [
+          { namespace: 'n', locale: 'en', loader: async () => ({ a: 'x', b: 'x', c: 'x' }) },
+          { namespace: 'n', locale: 'de', loader: async () => ({ a: 'x', b: 'x' }) },
+          { namespace: 'n', locale: 'fr', loader: async () => ({ a: 'x' }) },
+        ],
+      });
+
+      expect(collection.diagnostics.map(({ message }) => message)).toEqual([
+        "'de' lacks 1 key the reference 'en' has: 'n.c'.",
+        "'fr' lacks 2 keys the reference 'en' has: 'n.b', 'n.c'. 1 of them render from 'de'.",
+      ]);
+    });
   });
 
   describe('on a 3.0 core, which has no resolveLoaders', () => {
@@ -490,10 +642,14 @@ describe('derive', () => {
     it('reads the namespace under `key`, the only name that core knows', async () => {
       const collection = await run({
         initLocale: 'en',
-        loaders: [{ key: 'home', locale: 'en', loader: loader({ title: 'x' }) }],
+        loaders: [
+          { key: 'home', locale: 'en', loader: loader({ title: 'x' }) },
+          { key: 'home', locale: 'cs', loader: loader({ title: 'x', only: 'x' }) },
+        ],
       });
 
       expect(collection.entries.map(({ key }) => key)).toEqual(['home.title']);
+      expect(collection.diagnostics.map(({ code }) => code)).toEqual(['key-extra']);
     });
 
     it('keys a loader without `key` under \'undefined\', as that core does', async () => {

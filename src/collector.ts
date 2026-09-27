@@ -12,6 +12,7 @@ export type CollectorInput = {
   derive: string;
   extractParams?: Options.ExtractParams;
   referenceLocale?: string;
+  checkLocales?: boolean;
 };
 
 const EXTRACTOR_NAME = 'extractParamsFactory';
@@ -60,7 +61,7 @@ const extractor = (options?: Options.ExtractParams): string[] => {
  * carries no runes and no bare imports of its own, so the runner hands it
  * straight to the host runtime.
  */
-export const collectorSource = ({ config, configExport, derive, extractParams, referenceLocale }: CollectorInput): string => [
+export const collectorSource = ({ config, configExport, derive, extractParams, referenceLocale, checkLocales }: CollectorInput): string => [
   "import { I18n } from '@sveltekit-i18n/base';",
   // A namespace import, so a 3.0 core, which has no `resolveLoaders`, still
   // links.
@@ -84,6 +85,7 @@ export const collectorSource = ({ config, configExport, derive, extractParams, r
   '  configExports: Object.keys(configModule),',
   '  sanitizeLocales: coreUtils.sanitizeLocales,',
   '  resolveLoaders: coreUtils.resolveLoaders,',
+  `  checkLocales: ${literal(checkLocales)},`,
   '  extract,',
   '  extractorFailure,',
   `  referenceLocale: ${literal(referenceLocale)},`,
