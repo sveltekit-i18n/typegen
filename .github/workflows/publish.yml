@@ -61,7 +61,19 @@ jobs:
           # The bump picks the dist-tag: a prerelease can only reach `next`,
           # and only a released version can move `latest`.
           if [ '${{ inputs.version }}' = next ]; then
-            TAG="$(npm version prerelease --preid=next | tail -n 1)"
+            # npm never takes a version it once published, one unpublished since
+            # included, so the prerelease counter skips every such version. Only
+            # a package npm does not know has none; any other failure stops here.
+            # npm 12 wraps what it finds in an array.
+            USED="$(npm view "$(node -p 'require("./package.json").name')" time --json 2>/dev/null || true)"
+            USED="$(printf '%s' "$USED" | node -e 'const raw = JSON.parse(require("fs").readFileSync(0, "utf8")); const out = Array.isArray(raw) ? raw[0] ?? {} : raw; if (out.error && out.error.code !== "E404") process.exit(1); console.log(JSON.stringify(out.error ? {} : out))')"
+            VERSION="$(npm version prerelease --preid=next --no-git-tag-version | tail -n 1)"
+            VERSION="${VERSION#v}"
+            git checkout -- package.json package-lock.json
+            while printf '%s' "$USED" | node -e 'process.exit(process.argv[1] in JSON.parse(require("fs").readFileSync(0, "utf8")) ? 0 : 1)' "$VERSION"; do
+              VERSION="${VERSION%.*}.$(( ${VERSION##*.} + 1 ))"
+            done
+            TAG="$(npm version "$VERSION" | tail -n 1)"
             DIST_TAG=next
           else
             TAG="$(npm version '${{ inputs.version }}' | tail -n 1)"
