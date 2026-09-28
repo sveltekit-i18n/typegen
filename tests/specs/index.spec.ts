@@ -1148,4 +1148,43 @@ describe('a dev server\'s generation', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it.each([
+    ['a skipped loader\'s, without its stack', 'loader-skipped', () => 'Error: no slug'],
+    ['an unchecked locale\'s, with its stack', 'locale-unchecked', (cause: Error) => cause.stack],
+  ] as const)('reports the cause of a warning as a warning: %s', async (_name, code, logged) => {
+    const root = await mkdtemp(resolve(tmpdir(), 'typegen-'));
+    const cause = new Error('no slug');
+    const diagnostics = [{ code, message: 'A warning.', cause }];
+    const logger = { warn: vi.fn(), error: vi.fn() };
+
+    vi.mocked(collect).mockClear().mockResolvedValueOnce({
+      collection: { entries: [entry('late', 'late')], referenceLocale: 'en', diagnostics, skipped: [] },
+      dependencies: [],
+      reached: [],
+    });
+
+    try {
+      const plugin = typegen({ config: 'src/i18n.js', outFile: 'schema.d.ts' });
+      const watcher = Object.assign(new EventEmitter(), { add: () => watcher });
+      const server = {
+        watcher,
+        config: { experimental: {}, logger },
+        environments: { client: { pluginContainer: { buildStart: async () => {} } } },
+      };
+      const hook = (name: 'configResolved' | 'configureServer' | 'buildStart', self: unknown, ...args: unknown[]) => (
+        (plugin[name] as (...rest: unknown[]) => unknown).call(self, ...args)
+      );
+
+      hook('configResolved', {}, { root, command: 'serve' });
+      hook('configureServer', {}, server);
+      await hook('buildStart', { environment: { name: 'client' } });
+      await vi.waitFor(() => expect(logger.warn).toHaveBeenCalledTimes(2));
+
+      expect(logger.error).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenLastCalledWith(logged(cause));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
