@@ -11,13 +11,15 @@ export namespace Diagnostic {
    * locales with the reference. They are warnings: the schema follows the
    * reference alone, and it is written. `loader-skipped` is a warning too: a
    * loader that cannot run outside the app leaves its namespace open in the
-   * schema rather than failing it.
+   * schema rather than failing it. `locale-unserved` is a warning: the stated
+   * locale is served only as `/kit` negotiates it.
    */
   export type Code =
     | 'config-unreadable'
     | 'config-export-missing'
     | 'core-too-old'
     | 'reference-locale-missing'
+    | 'locale-unserved'
     | 'loader-threw'
     | 'loader-skipped'
     | 'no-keys'
