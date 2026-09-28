@@ -87,7 +87,7 @@ The registration covers the whole program, so only the app registers. A library 
 src/i18n-schema.d.ts
 ```
 
-It is reproducible from your translation files, so committing it only buys merge conflicts. A fresh clone has no schema until the first `vite dev` or `vite build`; until then `t()` takes plain strings, exactly as an app with no schema does. An editor already open when the file first appears may keep showing plain strings (`TranslationSchema` as `any`) until you restart its Svelte and TypeScript language servers.
+It is reproducible from your translation files, so committing it only buys merge conflicts. A fresh clone has no schema until the first `vite dev` or `vite build`; until then `t()` takes plain strings, exactly as an app with no schema does. The cast a 3.0 core (or a 3.1 prerelease before `next.2`) needs names the type itself, so there a type check fails until the file exists: run a build before `svelte-check` in CI. An editor already open when the file first appears may keep showing plain strings (`TranslationSchema` as `any`) until you restart its Svelte and TypeScript language servers.
 
 ## Options
 
