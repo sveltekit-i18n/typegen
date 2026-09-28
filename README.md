@@ -79,7 +79,7 @@ const i18n = new I18n({ ...config, schema: /** @type {TranslationSchema} */ ({})
 src/i18n-schema.d.ts
 ```
 
-It is reproducible from your translation files, so committing it only buys merge conflicts. A fresh clone has no schema until the first `vite dev` or `vite build`; until then `t()` takes plain strings, exactly as an app with no schema does.
+It is reproducible from your translation files, so committing it only buys merge conflicts. A fresh clone has no schema until the first `vite dev` or `vite build`; until then `t()` takes plain strings, exactly as an app with no schema does. An editor already open when the file first appears may keep showing plain strings (`TranslationSchema` as `any`) until you restart its Svelte and TypeScript language servers.
 
 ## Options
 
