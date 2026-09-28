@@ -35,9 +35,10 @@ const posix = (path: string): string => path.split(sep).join('/');
 const exists = (path: string): Promise<boolean> => access(path).then(() => true, () => false);
 
 // A throw carries whatever was thrown, which need not be an `Error` and need
-// not stringify to anything useful.
-const explain = (cause: unknown): string => {
-  if (cause instanceof Error) return cause.stack ?? `${cause.name}: ${cause.message}`;
+// not stringify to anything useful. A skipped loader is expected to throw, for
+// the route params it was not handed, so its stack is left out.
+const explain = (cause: unknown, traced: boolean): string => {
+  if (cause instanceof Error) return (traced ? cause.stack : undefined) ?? `${cause.name}: ${cause.message}`;
 
   try {
     return JSON.stringify(cause) ?? Object.prototype.toString.call(cause);
@@ -84,13 +85,13 @@ const started = async (server: ViteDevServer): Promise<boolean> => {
 
 type Generated = { dependencies: string[]; failed: boolean };
 
-type Report = (severity: Diagnostic.Severity, message: string, cause?: unknown) => void;
+type Report = (severity: Diagnostic.Severity, message: string, cause?: unknown, traced?: boolean) => void;
 
 const report = (collection: Collection, log: Report): boolean => {
   const failed = collection.diagnostics.some(({ code }) => ERRORS.has(code));
 
   collection.diagnostics.forEach(({ code, message, cause }) => {
-    log(ERRORS.has(code) ? 'error' : 'warning', `${message} [${code}]`, cause);
+    log(ERRORS.has(code) ? 'error' : 'warning', `${message} [${code}]`, cause, code !== 'loader-skipped');
   });
 
   return !failed;
@@ -206,8 +207,8 @@ export const typegen = (options: Options.T): Plugin => {
       // typed still deploys, and the placeholder keeps the project compiling.
       // Making a deploy hinge on a loader that blinked would be the worse
       // trade, and a CI freshness gate is the right place for strictness.
-      await generate((severity, message, cause) => {
-        this.warn(cause === undefined ? message : `${message}\n${explain(cause)}`);
+      await generate((_severity, message, cause, traced = true) => {
+        this.warn(cause === undefined ? message : `${message}\n${explain(cause, traced)}`);
       });
     },
 
@@ -231,10 +232,12 @@ export const typegen = (options: Options.T): Plugin => {
     configureServer(server) {
       if (!settings.enabled) return;
 
-      const log: Report = (severity, message, cause) => {
-        server.config.logger[severity === 'error' ? 'error' : 'warn'](`[${NAME}] ${message}`);
+      const log: Report = (severity, message, cause, traced = true) => {
+        const level = severity === 'error' ? 'error' : 'warn';
 
-        if (cause !== undefined) server.config.logger.error(explain(cause));
+        server.config.logger[level](`[${NAME}] ${message}`);
+
+        if (cause !== undefined) server.config.logger[level](explain(cause, traced));
       };
 
       const generatedId = posix(outFile);
