@@ -58,6 +58,11 @@ export type DeriveInput = {
    * none, and its loaders are read here instead.
    */
   resolveLoaders?: ResolveLoaders;
+  /**
+   * The core's own `matchLocale`, from the app's copy of it, which settles a
+   * stated locale on one the config serves. A 3.0 core has none.
+   */
+  matchLocale?: (requested: string, available: readonly string[]) => string | undefined;
   /** Where the core the config runs on was found, for a diagnostic to name. */
   coreLocation?: string | null;
   /** Whether the other locales are loaded and compared with the reference. Defaults to `true`. */
@@ -236,18 +241,39 @@ const withDeadline = async <T>(work: Promise<T>, after: number): Promise<T> => {
 
 /**
  * The locale whose catalogue defines the key set. A config's own starting point
- * is the best guess at the catalogue its author keeps complete.
+ * is the best guess at the catalogue its author keeps complete. `/kit` reads it
+ * as a candidate it matches to a served locale (`en-US` serves `en`), and so
+ * does this; a `referenceLocale` asked for is only sanitized. `unserved` names
+ * the stated locale matched when none is served as stated, which an instance
+ * built without `/kit` does not match.
  */
-const pickReference = (config: Config, loaders: readonly Loader[], sanitize: (locale: string) => string, requested?: string): string | undefined => {
-  const stated = requested ?? config.initLocale ?? config.fallbackLocale;
+const pickReference = (
+  config: Config,
+  loaders: readonly Loader[],
+  sanitize: (locale: string) => string,
+  requested?: string,
+  match?: DeriveInput['matchLocale'],
+): { reference?: string; unserved?: string } => {
+  if (requested) return { reference: sanitize(requested) };
 
-  if (stated) return sanitize(stated);
+  const stated = [config.initLocale, config.fallbackLocale].filter((locale): locale is string => !!locale).map(sanitize);
+
+  if (stated.length) {
+    const served = [...new Set([...loaders.map(({ locale }) => locale), ...Object.keys(config.translations ?? {}).map(sanitize)])];
+    const matched = stated.map((locale) => [locale, served.includes(locale) ? locale : match?.(locale, served)] as const).find(([, locale]) => locale !== undefined);
+
+    if (!matched) return { reference: stated[0] };
+
+    const [candidate, reference] = matched;
+
+    return stated.some((locale) => served.includes(locale)) ? { reference } : { reference, unserved: candidate };
+  }
 
   const fromTranslations = Object.keys(config.translations ?? {})[0];
 
-  if (fromTranslations) return sanitize(fromTranslations);
+  if (fromTranslations) return { reference: sanitize(fromTranslations) };
 
-  return loaders[0]?.locale;
+  return { reference: loaders[0]?.locale };
 };
 
 // Files each seeded locale under its sanitized name, merging the namespaces of
@@ -293,6 +319,7 @@ export const derive = async ({
   configExports,
   sanitizeLocales,
   resolveLoaders,
+  matchLocale,
   coreLocation,
   checkLocales = true,
   extract,
@@ -332,7 +359,7 @@ export const derive = async ({
 
   const sanitize = sanitizerFor(config, sanitizeLocales);
   const loaders = resolveLoaders ? resolveLoaders(config.loaders, config.sanitizeLocales) : readLoaders(config.loaders, sanitize);
-  const reference = pickReference(config, loaders, sanitize, referenceLocale);
+  const { reference, unserved } = pickReference(config, loaders, sanitize, referenceLocale, matchLocale);
 
   if (!reference) {
     return {
@@ -514,6 +541,10 @@ export const derive = async ({
     referenceLocale: reference,
     diagnostics: [
       ...missingExtractor,
+      ...(unserved === undefined ? [] : [{
+        code: 'locale-unserved' as const,
+        message: `The config serves no '${unserved}': the schema follows '${reference}', which /kit negotiates '${unserved}' to. An instance built without /kit starts on no locale.`,
+      }]),
       ...failures,
       ...skips,
       ...thrown,

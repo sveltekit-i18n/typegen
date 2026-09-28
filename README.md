@@ -120,7 +120,7 @@ typegen({
 
 ### `referenceLocale`
 
-The locale whose catalogue defines the key set. Defaults to the config's `initLocale`, then its `fallbackLocale`, then the first locale it names. One catalogue is the source of truth; the others are not unioned in, but compared with it (see [`checkLocales`](#checklocales)).
+The locale whose catalogue defines the key set. Defaults to the config's `initLocale`, then its `fallbackLocale` — on a 3.1 core the first of them that settles on a locale the config serves, as `/kit` settles it (`en-US` takes `en`), on a 3.0 core the first stated, only sanitized — then the first locale it names. A `referenceLocale` you set is only sanitized, never matched to a served locale. One catalogue is the source of truth; the others are not unioned in, but compared with it (see [`checkLocales`](#checklocales)).
 
 ### `outFile`
 
@@ -180,6 +180,7 @@ A failed generation is reported, never thrown: the artifact is types, and a buil
 | `config-export-missing` | the module carries no such export | nothing is written |
 | `core-too-old` | a loader names a `namespace` or an array of locales, which the 3.0 core the config runs on does not read (the message says where that core was found) | nothing is written |
 | `reference-locale-missing` | the config names no locale to derive from | nothing is written |
+| `locale-unserved` | neither `initLocale` nor `fallbackLocale` is served as stated, and the reference is the locale `/kit` negotiates one of them to (`en-US` to `en`); an instance built without `/kit` starts on no locale | warning, the schema is written |
 | `loader-threw` | a loader failed, so its keys are missing | nothing is written |
 | `loader-skipped` | a loader cannot run outside the app: it threw SvelteKit's request-store error (a remote `query` outside a request), or its `routes` capture params it was not given | warning, the schema is written with that namespace open (see [Limits](#limits)) and the namespace left out of the comparison |
 | `no-keys` | the reference locale's catalogue came back empty | nothing is written |

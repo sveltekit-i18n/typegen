@@ -90,6 +90,7 @@ export const collectorSource = ({ config, configExport, derive, core, extractPar
   '  configExports: Object.keys(configModule),',
   '  sanitizeLocales: coreUtils.sanitizeLocales,',
   '  resolveLoaders: coreUtils.resolveLoaders,',
+  '  matchLocale: coreUtils.matchLocale,',
   '  coreLocation,',
   `  checkLocales: ${literal(checkLocales)},`,
   '  extract,',

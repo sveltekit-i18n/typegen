@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
-import { resolveLoaders } from '@sveltekit-i18n/base/utils';
+import { matchLocale, resolveLoaders } from '@sveltekit-i18n/base/utils';
 import { build } from 'vite';
 import type { Plugin } from 'vite';
 import { describe, expect, it, vi } from 'vitest';
@@ -34,8 +34,9 @@ const entry = (key: string, value: unknown, params: Entry['params'] = []): Entry
 const sanitizeLocales = (...locales: unknown[]): string[] => locales.map(String);
 
 // The core the suite installs is 3.1, so its `resolveLoaders` reads the
-// loaders unless a spec takes the 3.0 path by leaving it out.
-const derive = (input: DeriveInput) => deriveWith({ resolveLoaders: resolveLoaders as DeriveInput['resolveLoaders'], ...input });
+// loaders and its `matchLocale` settles the reference, unless a spec takes the
+// 3.0 path by leaving them out.
+const derive = (input: DeriveInput) => deriveWith({ resolveLoaders: resolveLoaders as DeriveInput['resolveLoaders'], matchLocale, ...input });
 
 const probeFactory = () => {
   const translations: Record<string, Record<string, unknown>> = {};
@@ -473,6 +474,82 @@ describe('derive', () => {
     expect(await run({ fallbackLocale: 'en', translations: { de: {} } })).toBe('en');
     expect(await run({ translations: { de: { a: '1' } } })).toBe('de');
     expect(await run({ loaders: [{ namespace: 'x', locale: 'sk', loader: loader({ a: '1' }) }] })).toBe('sk');
+  });
+
+  it('takes the served locale a regional initLocale negotiates to, as /kit does', async () => {
+    const collection = await derive({
+      probe: probeFactory(),
+      sanitizeLocales,
+      extract: null,
+      config: {
+        initLocale: 'en-US',
+        loaders: [
+          { namespace: 'home', locale: 'en', loader: loader({ a: '1' }) },
+          { namespace: 'home', locale: 'cs', loader: loader({ a: '1' }) },
+        ],
+      },
+    });
+
+    expect(collection.referenceLocale).toBe('en');
+    expect(collection.entries.map(({ key }) => key)).toEqual(['home.a']);
+    expect(collection.diagnostics.map(({ code }) => code)).toEqual(['locale-unserved']);
+    expect(collection.diagnostics[0].message).toContain("'en-US'");
+  });
+
+  it('keeps a served initLocale that is no language range', async () => {
+    const collection = await derive({
+      probe: probeFactory(),
+      sanitizeLocales,
+      extract: null,
+      config: {
+        sanitizeLocales: false,
+        initLocale: 'en_US',
+        fallbackLocale: 'de',
+        loaders: [
+          { namespace: 'home', locale: 'en_US', loader: loader({ a: '1' }) },
+          { namespace: 'home', locale: 'de', loader: loader({ a: '1' }) },
+        ],
+      },
+    });
+
+    expect(collection.referenceLocale).toBe('en_US');
+  });
+
+  it('says nothing of a regional initLocale when the fallbackLocale is served as stated', async () => {
+    const collection = await derive({
+      probe: probeFactory(),
+      sanitizeLocales,
+      extract: null,
+      config: {
+        initLocale: 'en-US',
+        fallbackLocale: 'cs',
+        loaders: [
+          { namespace: 'home', locale: 'en', loader: loader({ a: '1' }) },
+          { namespace: 'home', locale: 'cs', loader: loader({ a: '1' }) },
+        ],
+      },
+    });
+
+    expect(collection.referenceLocale).toBe('en');
+    expect(collection.diagnostics).toEqual([]);
+  });
+
+  it('settles on the fallbackLocale when the initLocale negotiates to nothing served', async () => {
+    const collection = await derive({
+      probe: probeFactory(),
+      sanitizeLocales,
+      extract: null,
+      config: {
+        initLocale: 'de',
+        fallbackLocale: 'cs',
+        loaders: [
+          { namespace: 'home', locale: 'en', loader: loader({ a: '1' }) },
+          { namespace: 'home', locale: 'cs', loader: loader({ a: '1' }) },
+        ],
+      },
+    });
+
+    expect(collection.referenceLocale).toBe('cs');
   });
 
   it('answers a diagnostic rather than a guess when no locale is named', async () => {
