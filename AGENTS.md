@@ -67,7 +67,7 @@ Issues for this repo live in the `lib` tracker.
 | `tests/specs/typing.spec.ts` | compiles the emitted artifact against the published types |
 | `tests/fixtures/run.js` | runs the SHIPPED plugin over a fixture, per case, in its own process |
 | `tests/fixtures/app/` | a real SvelteKit app (adapter-node), several configs as several exports; it declares its dependencies, as the app's own server needs them declared to compile the core |
-| `tests/fixtures/typing/` | `ok.ts` / `bad.ts` / `degrades.ts` — deliberately broken TypeScript, excluded from `tsconfig` and from ESLint |
+| `tests/fixtures/typing/` | `ok.ts` / `bad.ts` / `degrades.ts` / `skipped.ts` — deliberately broken TypeScript, excluded from `tsconfig` and from ESLint, typed by the cast on a 3.0 core; `registry/` holds the cases a 3.1 core types by the registration |
 
 ## Architecture you must respect
 
@@ -189,7 +189,15 @@ Issues for this repo live in the `lib` tracker.
 - **The artifact is a global script `.d.ts`: no top-level `import` or
   `export`, ever.** One turns it into a module and the global vanishes, with an
   error that points at the consumer rather than at the artifact. External types
-  go in as inline `import('…')`.
+  go in as inline `import('…')`. It holds `interface TranslationSchema` and,
+  after it, a fixed block registering it —
+  `declare namespace SvelteKitI18n { interface Register { schema: TranslationSchema } }`
+  — which base and `sveltekit-i18n` read from 3.1.0-next.2 on (3.1.0 once
+  stable) for every config that states no `schema`, and which 3.0 and the
+  earlier 3.1 prereleases ignore; the placeholder carries the same block. The
+  interface keeps its global name, so the cast (`schema: {} as
+  TranslationSchema`) still types those older cores and still overrides per
+  instance.
 - **`emit` is pure and byte-stable.** Keys are sorted, so an unchanged
   catalogue produces unchanged bytes and `writeIfChanged` skips the write. That
   is not an optimization: the artifact lands inside the tree the dev server
@@ -216,7 +224,10 @@ Issues for this repo live in the `lib` tracker.
 
 - Three specs, three jobs: `index.spec.ts` drives the pure halves in process,
   `plugin.spec.ts` drives real builds and a real dev server, `typing.spec.ts`
-  compiles what `emit` wrote against the published `sveltekit-i18n` types.
+  compiles what `emit` wrote, block included, against a 3.0 core through the
+  cast (`sveltekit-i18n-3.0`, an aliased `sveltekit-i18n@3.0.0` with its own
+  base, which ignores the registration, so only the cast types those cases)
+  and against the 3.1 cores through the registration.
 - **`typing.spec.ts` runs `tsc` at `skipLibCheck: false`.** Two regression
   classes — an artifact that is a `type` alias, and a key a user redeclares
   differently — are invisible at the `skipLibCheck: true` every SvelteKit app
@@ -226,7 +237,8 @@ Issues for this repo live in the `lib` tracker.
   exactly those plugins — two builds in one process would not be independent.
 - The suite runs against base 3.1, which the fixture app resolves too. The 3.0
   path — no `resolveLoaders` in the core's `/utils` — is covered in process, by
-  calling `derive` without it.
+  calling `derive` without it; the aliased 3.0 core serves `typing.spec.ts`'s
+  cast cases only.
 - Vitest sets `fileParallelism: false` and a two-minute timeout: a spec starts
   real Vite pipelines.
 - Fixture apps and the typing subjects are excluded from `tsconfig.json` and

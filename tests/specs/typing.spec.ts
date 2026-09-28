@@ -37,9 +37,14 @@ const OPTIONS = [
   '--verbatimModuleSyntax',
 ];
 
+// A SvelteKit app checks its JavaScript too.
+const JS = ['--allowJs', '--checkJs'];
+
 const compile = async (...files: string[]): Promise<string> => {
+  const options = files.some((file) => file.endsWith('.js')) ? [...OPTIONS, ...JS] : OPTIONS;
+
   try {
-    await run(process.execPath, [TSC, ...OPTIONS, SCHEMA, ...files.map((file) => resolve(TYPING, file))]);
+    await run(process.execPath, [TSC, ...options, SCHEMA, ...files.map((file) => resolve(TYPING, file))]);
 
     return '';
   } catch (failure) {
@@ -67,7 +72,25 @@ const SCHEMA_ENTRIES: Entry[] = [
 
 afterAll(() => rm(SCHEMA, { force: true }));
 
-describe('the emitted artifact, compiled against the published types', () => {
+const errorsIn = (output: string, file: string): string[] => (
+  output.split('\n').filter((line) => line.includes(`${file}(`) && /\(\d+,\d+\): error TS/.test(line))
+);
+
+const expectEveryCallRejected = (output: string, file: string): void => {
+  expect(errorsIn(output, file)).toHaveLength(5);
+  expect(output).toContain("Argument of type '\"home.nope\"' is not assignable");
+  expect(output).toContain("Type 'string' is not assignable to type 'number'");
+  expect(output).toContain("'nmae' does not exist in type");
+  expect(output).toContain("not assignable to parameter of type 'undefined'");
+};
+
+// The artifact registers the schema, and a 3.1 core reads the registration, so
+// on one a cast the fixture forgot would still type the app. These cases state
+// `schema: {} as TranslationSchema` and compile the WHOLE artifact against a
+// 3.0 core (`sveltekit-i18n-3.0`, an aliased `sveltekit-i18n@3.0.0` with its own
+// base 3.0.0), which ignores the block: the cast is all that types them, as it
+// is for an app on 3.0 or on a 3.1 prerelease before 3.1.0-next.2.
+describe('the emitted artifact, cast into a 3.0 core', () => {
   it('narrows every call the app gets right', async () => {
     await writeFile(SCHEMA, emit(SCHEMA_ENTRIES, 'en').contents, 'utf8');
 
@@ -77,14 +100,7 @@ describe('the emitted artifact, compiled against the published types', () => {
   it('rejects every call the app gets wrong', async () => {
     await writeFile(SCHEMA, emit(SCHEMA_ENTRIES, 'en').contents, 'utf8');
 
-    const output = await compile('bad.ts');
-    const errors = output.split('\n').filter((line) => /bad\.ts\(\d+,\d+\): error TS/.test(line));
-
-    expect(errors).toHaveLength(5);
-    expect(output).toContain("Argument of type '\"home.nope\"' is not assignable");
-    expect(output).toContain("Type 'string' is not assignable to type 'number'");
-    expect(output).toContain("'nmae' does not exist in type");
-    expect(output).toContain("not assignable to parameter of type 'undefined'");
+    expectEveryCallRejected(await compile('bad.ts'), 'bad.ts');
   });
 
   it('opens a skipped namespace and leaves the rest narrow', async () => {
@@ -109,5 +125,73 @@ describe('the emitted artifact, compiled against the published types', () => {
 
     expect(contents.split('\n').some((line) => /^\s*(import|export)\b/.test(line))).toBe(false);
     expect(placeholder().split('\n').some((line) => /^\s*(import|export)\b/.test(line))).toBe(false);
+  });
+});
+
+// From base and `sveltekit-i18n` 3.1.0-next.2 on (3.1.0 once stable) the core
+// reads the registration, and a config that states no schema is typed by it.
+describe('the registration, compiled against a 3.1 core', () => {
+  it('narrows every call the app gets right', async () => {
+    await writeFile(SCHEMA, emit(SCHEMA_ENTRIES, 'en').contents, 'utf8');
+
+    expect(await compile('registry/ok.ts')).toBe('');
+  });
+
+  it('rejects every call the app gets wrong', async () => {
+    await writeFile(SCHEMA, emit(SCHEMA_ENTRIES, 'en').contents, 'utf8');
+
+    expectEveryCallRejected(await compile('registry/bad.ts'), 'bad.ts');
+  });
+
+  it('opens a skipped namespace and leaves the rest narrow', async () => {
+    await writeFile(SCHEMA, emit(SCHEMA_ENTRIES, 'en', [{ namespace: 'post', whole: false }]).contents, 'utf8');
+
+    expect(await compile('registry/skipped.ts')).toBe('');
+  });
+
+  it('registers plain string keys before the first generation', async () => {
+    await writeFile(SCHEMA, placeholder(), 'utf8');
+
+    expect(await compile('registry/degrades.ts')).toBe('');
+  });
+
+  it('yields to a schema the config states', async () => {
+    await writeFile(SCHEMA, emit(SCHEMA_ENTRIES, 'en').contents, 'utf8');
+
+    expect(await compile('registry/explicit.ts')).toBe('');
+  });
+
+  it('yields to a cast of another schema on `sveltekit-i18n`', async () => {
+    await writeFile(SCHEMA, emit(SCHEMA_ENTRIES, 'en').contents, 'utf8');
+
+    expect(await compile('registry/cast.ts')).toBe('');
+  });
+
+  it('leaves an instance that opts out with `schema: {}` alone', async () => {
+    await writeFile(SCHEMA, emit(SCHEMA_ENTRIES, 'en').contents, 'utf8');
+
+    expect(await compile('registry/opt-out.ts')).toBe('');
+  });
+
+  it('types the instance `/kit` hands out', async () => {
+    await writeFile(SCHEMA, emit(SCHEMA_ENTRIES, 'en').contents, 'utf8');
+
+    expect(await compile('registry/kit.ts')).toBe('');
+  });
+
+  it('types a checked JavaScript file', async () => {
+    await writeFile(SCHEMA, emit(SCHEMA_ENTRIES, 'en').contents, 'utf8');
+
+    expect(await compile('registry/check.js')).toBe('');
+  });
+
+  it('reports a second registration of another schema', async () => {
+    // Silent under `skipLibCheck: true`, where the first declaration wins; a
+    // library must never register.
+    await writeFile(SCHEMA, emit(SCHEMA_ENTRIES, 'en').contents, 'utf8');
+
+    const output = await compile('registry/twice.ts');
+
+    expect(errorsIn(output, 'twice.ts')).toEqual([expect.stringContaining('error TS2717')]);
   });
 });

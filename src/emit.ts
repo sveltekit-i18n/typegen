@@ -113,16 +113,33 @@ const BANNER = [
 ].join('\n');
 
 /**
- * The placeholder written before anything that can throw. An EMPTY interface
- * degrades to plain `string` keys, so a project compiles before the first
- * generation and after a failed one; an index signature would look equivalent
- * and instead disable narrowing for good, since it survives the declaration
- * merge that the real artifact arrives by.
+ * Registers the schema with the core: from base 3.1.0-next.2 on (3.1.0 once
+ * stable) a config that states no `schema` is typed by `SvelteKitI18n.Register`,
+ * and 3.0 or an earlier 3.1 prerelease ignores the block. A declaration in a
+ * script, so it merges into the global namespace.
+ */
+const REGISTER = [
+  'declare namespace SvelteKitI18n {',
+  '  interface Register {',
+  '    schema: TranslationSchema;',
+  '  }',
+  '}',
+].join('\n');
+
+/**
+ * The placeholder written before anything that can throw. An EMPTY interface,
+ * registered as the artifact registers it, degrades to plain `string` keys, so
+ * a project compiles before the first generation and after a failed one; an
+ * index signature would look equivalent and instead disable narrowing for
+ * good, since it survives the declaration merge that the real artifact arrives
+ * by.
  */
 export const placeholder = (): string => [
   BANNER,
   '',
   'interface TranslationSchema {}',
+  '',
+  REGISTER,
   '',
 ].join('\n');
 
@@ -152,6 +169,8 @@ export const emit = (entries: readonly Entry[], referenceLocale: string, skipped
     `// Reference locale: ${referenceLocale}`,
     '',
     members.length || open.length ? `interface TranslationSchema {\n${[...members, ...open].join('\n')}\n}` : 'interface TranslationSchema {}',
+    '',
+    REGISTER,
     '',
   ].join('\n');
 
