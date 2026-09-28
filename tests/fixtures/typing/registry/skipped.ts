@@ -1,7 +1,9 @@
-import I18n from 'sveltekit-i18n-3.0';
+import I18n from '@sveltekit-i18n/base';
+import parser from '@sveltekit-i18n/parser-curly';
 
-// What a skipped namespace has to allow, and what it must leave narrow.
-const i18n = new I18n({ schema: {} as TranslationSchema, initLocale: 'en' });
+// What a skipped namespace has to allow through the registration, and what it
+// must leave narrow.
+const i18n = new I18n({ parser: parser({ onReport: null }), initLocale: 'en' });
 
 i18n.t('post.anything');
 i18n.t('post.anything', { with: 'a payload' });

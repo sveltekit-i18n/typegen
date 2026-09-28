@@ -1,8 +1,9 @@
-import I18n from 'sveltekit-i18n-3.0';
+import I18n from '@sveltekit-i18n/base';
+import parser from '@sveltekit-i18n/parser-curly';
 
 // Every line must be an error. The spec counts them, so one that stops being
 // one fails the run.
-const i18n = new I18n({ schema: {} as TranslationSchema, initLocale: 'en' });
+const i18n = new I18n({ parser: parser({ onReport: null }), initLocale: 'en' });
 
 i18n.t('home.nope', {});
 i18n.t('home.count', { count: 'two' });

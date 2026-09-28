@@ -59,9 +59,11 @@ export default {
 };
 ```
 
-### 3. Point the schema slot at it
+### 3. Nothing to wire from 3.1.0-next.2 on
 
-`TranslationSchema` is a global — the generated file declares it and imports nothing, so nothing has to import it either.
+The generated file registers the schema with the core, so on `sveltekit-i18n` or `@sveltekit-i18n/base` 3.1.0-next.2 or newer (3.1.0 once it is stable) every instance whose config states no `schema` is typed by it — `new I18n(config)` and the instance `defineI18n` from `/kit` hands out alike, in TypeScript and in JavaScript the compiler checks.
+
+A 3.0 core, and a 3.1 prerelease before 3.1.0-next.2, ignores the registration. There, point the schema slot at the generated type. `TranslationSchema` is a global — the generated file declares it and imports nothing, so nothing has to import it either.
 
 ```typescript
 const i18n = new I18n({ ...config, schema: {} as TranslationSchema });
@@ -72,6 +74,12 @@ In a JavaScript app, the same cast is a JSDoc one:
 ```javascript
 const i18n = new I18n({ ...config, schema: /** @type {TranslationSchema} */ ({}) });
 ```
+
+On a core that reads the registration the slot still wins when a config states it: an instance with a catalogue of its own states its own schema, and `schema: {}` opts an instance out, back to plain `string` keys.
+
+The registration covers the whole program, so only the app registers. A library never ships one: a second registration of another schema is a type error (TS2717) when declaration files are checked, and is silently ignored under the `skipLibCheck: true` SvelteKit sets.
+
+> **Upgrading** from a typegen that did not register: on a core that reads the registration the next generation types every instance that states no `schema`, a second instance or a test's included. Give such an instance its own schema, or `schema: {}`.
 
 ### 4. Ignore the output
 
@@ -150,11 +158,17 @@ interface TranslationSchema {
     name: unknown;
   };
 }
+
+declare namespace SvelteKitI18n {
+  interface Register {
+    schema: TranslationSchema;
+  }
+}
 ```
 
 `never` is how the core spells a message that takes no payload. A key whose message the extractor could not read is typed `any`, so it narrows the key and leaves the payload alone. The reference text rides along as a doc comment, which is what a completion popup shows.
 
-The same file also carries the placeholder — an empty `interface TranslationSchema {}` — written before anything that can fail. An empty interface is not a schema as far as the core is concerned, so keys degrade to plain `string` and the project compiles; it also merges cleanly when the real artifact arrives, and with any key you declare yourself in a `.d.ts` of your own.
+The same file also carries the placeholder — an empty `interface TranslationSchema {}`, registered the same way — written before anything that can fail. An empty interface is not a schema as far as the core is concerned, so keys degrade to plain `string` and the project compiles; it also merges cleanly when the real artifact arrives, and with any key you declare yourself in a `.d.ts` of your own.
 
 ## Diagnostics
 

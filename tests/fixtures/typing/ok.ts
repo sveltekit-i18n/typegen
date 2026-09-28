@@ -1,4 +1,4 @@
-import I18n from 'sveltekit-i18n';
+import I18n from 'sveltekit-i18n-3.0';
 
 // Every call a correctly typed app makes. The schema is the one `emit` writes,
 // read as a global — the artifact carries no import, so nothing imports it.

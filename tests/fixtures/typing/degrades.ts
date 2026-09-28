@@ -1,4 +1,4 @@
-import I18n from 'sveltekit-i18n';
+import I18n from 'sveltekit-i18n-3.0';
 
 // What the placeholder has to allow: a project compiles before the first
 // generation, with plain `string` keys.
