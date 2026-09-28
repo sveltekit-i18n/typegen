@@ -54,8 +54,10 @@ export namespace Options {
      */
     referenceLocale?: string;
     /**
-     * Where to write the declarations, relative to the Vite root. It is build
-     * output: gitignore it.
+     * Where to write the declarations, relative to the Vite root. Defaults to
+     * `src/i18n-schema.d.ts`. Keep it under `src/`: that is where SvelteKit's
+     * generated `tsconfig.json` picks a `.d.ts` up. It is build output:
+     * gitignore it.
      */
     outFile?: string;
     /**
@@ -84,8 +86,15 @@ export namespace Options {
    * reports a different — wrong — set.
    */
   export type ExtractParams = {
+    /** The module the extractor factory is imported from, e.g. `sveltekit-i18n`. */
     from: string;
+    /** The export the factory is read from. Defaults to `extractParamsFactory`. */
     name?: string;
+    /**
+     * The options the factory is called with. They cross into the app's
+     * graph as JSON, so only JSON data arrives: a function never reaches the
+     * extractor.
+     */
     options?: unknown;
   };
 }

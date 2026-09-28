@@ -14,7 +14,7 @@ Payloads come from the other half: the parser's build-time `extractParams`, whic
 
 ## Requirements
 
-`sveltekit-i18n` or `@sveltekit-i18n/base` 3.0 or newer (3.0 names a loader's namespace `key`; `namespace`, and a loader that lists several locales or namespaces, need 3.1), Vite 8 or newer, and Node 22+. The keys are read off the copy of the core your config runs on: the one `sveltekit-i18n` brings when the config imports that, the one it imports otherwise. SvelteKit is optional — its plugins are picked up when the app has them, which is what makes `$lib`, `$env` and `$app/environment` resolve.
+`sveltekit-i18n` or `@sveltekit-i18n/base` 3.0 or newer (3.0 names a loader's namespace `key`; `namespace`, and a loader that lists several locales or namespaces, need 3.1), Vite 8, and Node 22+. The keys are read off the copy of the core your config runs on: the one `sveltekit-i18n` brings when the config imports that, the one it imports otherwise. SvelteKit is optional — its plugins are picked up when the app has them, which is what makes `$lib`, `$env` and `$app/environment` resolve.
 
 ## Installation
 
@@ -106,7 +106,7 @@ typegen({
 })
 ```
 
-`options` are the parser's own, and they are not optional in practice: a custom modifier, a changed delimiter or a disabled tag syntax changes which parameters a message has, so an extractor built with different options reports a different — wrong — set. A built parser object carries no way to recover them, which is why they are stated here.
+`options` are the parser's own, and they are not optional in practice: a custom modifier, a changed delimiter or a disabled tag syntax changes which parameters a message has, so an extractor built with different options reports a different — wrong — set. A built parser object carries no way to recover them, which is why they are stated here. They reach the extractor as JSON, so only data survives: an option that is a function, such as a custom modifier, never arrives, and whatever it changes goes unreported.
 
 `name` overrides the export the factory is read from (`extractParamsFactory`).
 
