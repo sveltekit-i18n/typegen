@@ -192,12 +192,10 @@ Issues for this repo live in the `lib` tracker.
   go in as inline `import('…')`. It holds `interface TranslationSchema` and,
   after it, a fixed block registering it —
   `declare namespace SvelteKitI18n { interface Register { schema: TranslationSchema } }`
-  — which base and `sveltekit-i18n` read from 3.1.0-next.2 on (3.1.0 once
-  stable) for every config that states no `schema`, and which 3.0 and the
-  earlier 3.1 prereleases ignore; the placeholder carries the same block. The
+  — which base and `sveltekit-i18n` 3.1 read for every config that states no
+  `schema`, and which 3.0 ignores; the placeholder carries the same block. The
   interface keeps its global name, so the cast (`schema: {} as
-  TranslationSchema`) still types those older cores and still overrides per
-  instance.
+  TranslationSchema`) still types a 3.0 core and still overrides per instance.
 - **`emit` is pure and byte-stable.** Keys are sorted, so an unchanged
   catalogue produces unchanged bytes and `writeIfChanged` skips the write. That
   is not an optimization: the artifact lands inside the tree the dev server
