@@ -79,7 +79,7 @@ On a core that reads the registration the slot still wins when a config states i
 
 The registration covers the whole program, so only the app registers. A library never ships one: a second registration of another schema is a type error (TS2717) when declaration files are checked, and is silently ignored under the `skipLibCheck: true` SvelteKit sets.
 
-> **Upgrading** from a typegen that did not register: on a core that reads the registration the next generation types every instance that states no `schema`, a second instance or a test's included. Give such an instance its own schema, or `schema: {}`.
+> **Upgrading** the core from 3.0 to 3.1: the registration the generated file already carries starts to apply, so it types every instance that states no `schema`, a second instance or a test's included. Give such an instance its own schema, or `schema: {}`.
 
 ### 4. Ignore the output
 
