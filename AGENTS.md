@@ -10,10 +10,10 @@ preference. If your own memory conflicts with this file, follow this file.
 This repo follows the same working rules as
 [`base`'s AGENTS.md](https://github.com/sveltekit-i18n/base/blob/master/AGENTS.md)
 (sections 1-14: think before coding, simplicity first, surgical changes,
-verify and review cycle, commit on approval, fixup hygiene, branch & push
-discipline, PRs, docs track code, coding conventions, security posture,
-English-only artifacts, test rules, terse output, no emojis). What follows is
-only what differs here.
+verify and review cycle with release planning, commit on approval, fixup
+hygiene, branch & push discipline, PRs, docs track code, coding conventions,
+security posture, English-only artifacts, test rules, terse output, no
+emojis). What follows is only what differs here.
 
 ---
 
@@ -47,6 +47,11 @@ there it skips loaders the config states.
 The suite runs on Node only. Unlike the runtime packages there are no Bun and
 Deno legs: this never ships to a consumer's runtime. Windows IS in the matrix,
 because the package resolves module ids and writes paths.
+
+A release is planned with the rest of the family (base's §4, *Releases*):
+after `base` and the parsers, before `sveltekit-i18n`, whose examples run it.
+`README.md` is the npm page, so it describes the version being published, and
+each of its links resolves.
 
 Issues for this repo live in the `lib` tracker.
 
