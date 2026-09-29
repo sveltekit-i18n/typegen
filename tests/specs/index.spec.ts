@@ -236,8 +236,8 @@ describe('emit', () => {
     expect(emit([], 'en').contents).toContain('interface TranslationSchema {}');
   });
 
-  // From base 3.1.0-next.2 on the core types a config without a `schema` by
-  // this registration; 3.0 and the earlier 3.1 prereleases ignore it. It is fixed text, so it keeps the bytes stable.
+  // A 3.1 core types a config without a `schema` by this registration; 3.0
+  // ignores it. It is fixed text, so it keeps the bytes stable.
   const REGISTER = [
     'declare namespace SvelteKitI18n {',
     '  interface Register {',

@@ -113,9 +113,8 @@ const BANNER = [
 ].join('\n');
 
 /**
- * Registers the schema with the core: from base 3.1.0-next.2 on (3.1.0 once
- * stable) a config that states no `schema` is typed by `SvelteKitI18n.Register`,
- * and 3.0 or an earlier 3.1 prerelease ignores the block. A declaration in a
+ * Registers the schema with the core: on base 3.1 a config that states no
+ * `schema` is typed by `SvelteKitI18n.Register`, and 3.0 ignores the block. A declaration in a
  * script, so it merges into the global namespace.
  */
 const REGISTER = [

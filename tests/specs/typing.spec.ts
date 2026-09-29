@@ -89,7 +89,7 @@ const expectEveryCallRejected = (output: string, file: string): void => {
 // `schema: {} as TranslationSchema` and compile the WHOLE artifact against a
 // 3.0 core (`sveltekit-i18n-3.0`, an aliased `sveltekit-i18n@3.0.0` with its own
 // base 3.0.0), which ignores the block: the cast is all that types them, as it
-// is for an app on 3.0 or on a 3.1 prerelease before 3.1.0-next.2.
+// is for an app on 3.0.
 describe('the emitted artifact, cast into a 3.0 core', () => {
   it('narrows every call the app gets right', async () => {
     await writeFile(SCHEMA, emit(SCHEMA_ENTRIES, 'en').contents, 'utf8');
@@ -128,8 +128,7 @@ describe('the emitted artifact, cast into a 3.0 core', () => {
   });
 });
 
-// From base and `sveltekit-i18n` 3.1.0-next.2 on (3.1.0 once stable) the core
-// reads the registration, and a config that states no schema is typed by it.
+// A 3.1 core (base and `sveltekit-i18n`) reads the registration, and a config that states no schema is typed by it.
 describe('the registration, compiled against a 3.1 core', () => {
   it('narrows every call the app gets right', async () => {
     await writeFile(SCHEMA, emit(SCHEMA_ENTRIES, 'en').contents, 'utf8');

@@ -59,11 +59,11 @@ export default {
 };
 ```
 
-### 3. Nothing to wire from 3.1.0-next.2 on
+### 3. Nothing to wire on a 3.1 core
 
-The generated file registers the schema with the core, so on `sveltekit-i18n` or `@sveltekit-i18n/base` 3.1.0-next.2 or newer (3.1.0 once it is stable) every instance whose config states no `schema` is typed by it — `new I18n(config)` and the instance `defineI18n` from `/kit` hands out alike, in TypeScript and in JavaScript the compiler checks.
+The generated file registers the schema with the core, so on `sveltekit-i18n` or `@sveltekit-i18n/base` 3.1 every instance whose config states no `schema` is typed by it — `new I18n(config)` and the instance `defineI18n` from `/kit` hands out alike, in TypeScript and in JavaScript the compiler checks.
 
-A 3.0 core, and a 3.1 prerelease before 3.1.0-next.2, ignores the registration. There, point the schema slot at the generated type. `TranslationSchema` is a global — the generated file declares it and imports nothing, so nothing has to import it either.
+A 3.0 core ignores the registration. There, point the schema slot at the generated type. `TranslationSchema` is a global — the generated file declares it and imports nothing, so nothing has to import it either.
 
 ```typescript
 const i18n = new I18n({ ...config, schema: {} as TranslationSchema });
@@ -87,7 +87,7 @@ The registration covers the whole program, so only the app registers. A library 
 src/i18n-schema.d.ts
 ```
 
-It is reproducible from your translation files, so committing it only buys merge conflicts. A fresh clone has no schema until the first `vite dev` or `vite build`; until then `t()` takes plain strings, exactly as an app with no schema does. The cast a 3.0 core (or a 3.1 prerelease before `next.2`) needs names the type itself, so there a type check fails until the file exists: run a build before `svelte-check` in CI. An editor already open when the file first appears may keep showing plain strings (`TranslationSchema` as `any`) until you restart its Svelte and TypeScript language servers.
+It is reproducible from your translation files, so committing it only buys merge conflicts. A fresh clone has no schema until the first `vite dev` or `vite build`; until then `t()` takes plain strings, exactly as an app with no schema does. The cast a 3.0 core needs names the type itself, so there a type check fails until the file exists: run a build before `svelte-check` in CI. An editor already open when the file first appears may keep showing plain strings (`TranslationSchema` as `any`) until you restart its Svelte and TypeScript language servers.
 
 ## Options
 
