@@ -111,10 +111,15 @@ const isPlain = (value: unknown): boolean => !!value && typeof value === 'object
 const merge = (target: unknown, source: unknown): unknown => {
   if (!isPlain(target) || !isPlain(source)) return source;
 
-  return Object.keys(source as object).reduce<Record<string, unknown>>((acc, key) => ({
-    ...acc,
-    [key]: Object.hasOwn(acc, key) ? merge(acc[key], (source as any)[key]) : (source as any)[key],
-  }), { ...(target as Record<string, unknown>) });
+  // Written in place, as rebuilding per key is quadratic, into a null-prototype
+  // copy spread once on the way out, so a '__proto__' key stays an own key.
+  const output: Record<string, unknown> = Object.assign(Object.create(null), target);
+
+  Object.keys(source as object).forEach((key) => {
+    output[key] = Object.hasOwn(output, key) ? merge(output[key], (source as any)[key]) : (source as any)[key];
+  });
+
+  return { ...output };
 };
 
 // What a 3.0 core loads, which has no `resolveLoaders` to ask: one locale and
