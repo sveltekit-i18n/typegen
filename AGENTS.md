@@ -134,9 +134,14 @@ Issues for this repo live in the `lib` tracker.
   file, so its own generation still in flight writes nothing. A plugin instance can
   outlive its server (a restart with inline plugins), so nothing of this is
   kept on the instance. A change that lands while a generation is queued or
-  running is kept until that generation names its watch set: the generation
-  may have read the file before it changed, and the first one has no watch set
-  to match it against. Only a generation without an error narrows the watch
+  running is kept until the next generation to name its watch set, or read by
+  one that starts after it: the generation may have read the file before it
+  changed, and the first one has no watch set to match it against. Changes
+  coalesce: at most one generation waits behind the running one, and a change
+  the watcher reports before it starts joins it instead of queueing another,
+  since it reads every file after that change. It stops waiting as it starts,
+  before it reads anything, so a change reported while it runs queues the
+  next. Only a generation without an error narrows the watch
   set, to what it evaluated; one that failed, a `loader-threw` included, adds
   everything it reached, and one that never reached the app
   leaves it alone, since a failed one may not have reached the file whose next

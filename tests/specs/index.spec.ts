@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { resolve, sep } from 'node:path';
 
 import { matchLocale, resolveLoaders } from '@sveltekit-i18n/base/utils';
 import { build } from 'vite';
@@ -1301,6 +1301,56 @@ describe('a dev server\'s generation', () => {
 
       expect(written).toEqual(closed ? [placeholder()] : [placeholder(), emit(collection.entries, 'en').contents]);
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  // Each generation is held until the test releases it; `bursts[n]` lands
+  // while generation n runs, and `reads[n]` is what generation n reached.
+  it.each([
+    ['answers a burst of changes with one generation after the running one', [[['src/i18n.js', 10]]], [], 2],
+    ['answers a change once the queued generation has started with one more', [[['src/i18n.js', 1]], [['src/i18n.js', 1]]], [], 3],
+    ['answers a catalogue the running generation read before it changed with the queued one', [[['src/i18n.js', 1], ['src/en.json', 1]]], [['src/en.json']], 2],
+  ] as [string, [string, number][][], string[][], number][])('%s', async (_, bursts, reads, generations) => {
+    const root = await mkdtemp(resolve(tmpdir(), 'typegen-'));
+    const gates: (() => void)[] = [];
+
+    vi.mocked(collect).mockClear().mockImplementation(() => new Promise((done) => {
+      const dependencies = (reads[gates.length] ?? []).map((path) => resolve(root, path).split(sep).join('/'));
+
+      gates.push(() => done({ collection: { entries: [], referenceLocale: 'en', diagnostics: [], skipped: [] }, dependencies, reached: dependencies }));
+    }));
+
+    try {
+      const plugin = typegen({ config: 'src/i18n.js', outFile: 'schema.d.ts' });
+      const watcher = Object.assign(new EventEmitter(), { add: () => watcher });
+      const server = {
+        watcher,
+        config: { experimental: {}, logger: { warn: () => {}, error: () => {} } },
+        environments: { client: { pluginContainer: { buildStart: async () => {} } } },
+      };
+      const hook = (name: 'configResolved' | 'configureServer' | 'buildStart', self: unknown, ...args: unknown[]) => (
+        (plugin[name] as (...rest: unknown[]) => unknown).call(self, ...args)
+      );
+
+      hook('configResolved', {}, { root, command: 'serve' });
+      hook('configureServer', {}, server);
+      await hook('buildStart', { environment: { name: 'client' } });
+
+      for (const [index, burst] of bursts.entries()) {
+        await vi.waitFor(() => expect(collect).toHaveBeenCalledTimes(index + 1));
+        burst.forEach(([path, times]) => Array.from({ length: times }).forEach(() => watcher.emit('change', resolve(root, path))));
+        gates[index]();
+      }
+
+      await vi.waitFor(() => expect(collect).toHaveBeenCalledTimes(generations));
+      gates[generations - 1]();
+
+      // A generation queued past the last one starts within a filesystem
+      // round trip; none must.
+      await expect(vi.waitFor(() => expect(collect).toHaveBeenCalledTimes(generations + 1), { timeout: 500 })).rejects.toThrow();
+    } finally {
+      vi.mocked(collect).mockReset();
       await rm(root, { recursive: true, force: true });
     }
   });

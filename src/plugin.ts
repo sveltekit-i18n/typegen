@@ -293,12 +293,20 @@ export const typegen = (options: Options.T): Plugin => {
 
       // Saving a whole editor session changes several files at once, and each
       // generation runs a Vite pipeline of its own. Chaining them is what keeps
-      // the last write the last one to have been derived.
+      // the last write the last one to have been derived; a change that lands
+      // before the queued generation starts is one it reads, so it queues no
+      // other.
       let pending = Promise.resolve();
+      let waiting = false;
 
       const regenerate = (): Promise<void> => {
+        if (waiting) return pending;
+
+        waiting = true;
         queued += 1;
         pending = pending.then(async () => {
+          waiting = false;
+
           try {
             if (serving()) await generate(log, serving, remember);
           } finally {
