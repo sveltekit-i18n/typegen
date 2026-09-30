@@ -271,6 +271,25 @@ describe('emit', () => {
     expect(count).toBe(6);
   });
 
+  // Tens of milliseconds when each line is appended once; seconds when the
+  // lines so far are copied for every key or parameter. The bound follows the
+  // core's own bounded-time tests.
+  it('emits many keys in bounded time', () => {
+    const keys = Array.from({ length: 20000 }, (_, i) => entry(`n.k${i}`, 'x', [{ name: 'a' }]));
+    const start = performance.now();
+
+    expect(emit(keys, 'en').count).toBe(20000);
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+
+  it('emits a message of many parameters in bounded time', () => {
+    const params = Array.from({ length: 20000 }, (_, i) => ({ name: `p${i}`, when: [{ param: 'c', branch: 'one' }] }));
+    const start = performance.now();
+
+    expect(emit([entry('k', 'x', params)], 'en').contents).toContain('p19999: unknown;');
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+
   it('records the reference locale it derived from', () => {
     expect(emit([entry('a', 'x')], 'en-GB').contents).toContain('Reference locale: en-GB');
   });
