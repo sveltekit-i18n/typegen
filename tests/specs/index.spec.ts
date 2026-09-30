@@ -54,6 +54,15 @@ const probeFactory = () => {
   };
 };
 
+// A stand-in for `preprocess: 'none'` under one call per locale: `flatten`
+// grows with the square of the keys, which a timed test cannot afford.
+const assigningProbe = () => ({
+  translations: {} as Record<string, Record<string, unknown>>,
+  addTranslations(input: any) {
+    Object.assign(this.translations, input);
+  },
+});
+
 // A stand-in for `preprocess: 'full'`, enough to key a namespace by dot notation.
 const flatten = (input: unknown, prefix = ''): Record<string, unknown> => {
   if (!input || typeof input !== 'object') return { [prefix]: input };
@@ -538,6 +547,66 @@ describe('derive', () => {
     });
 
     expect(collection.entries.map(({ key }) => key).sort()).toEqual(['home.nested.a', 'home.nested.b']);
+  });
+
+  it('merges two loaders of a wide namespace in bounded time', async () => {
+    const probe = assigningProbe();
+    const wide = (from: number) => Object.fromEntries(Array.from({ length: 5000 }, (_, i) => [`k${from + i}`, 'v']));
+    const started = performance.now();
+
+    await derive({
+      probe,
+      sanitizeLocales,
+      extract: null,
+      config: {
+        initLocale: 'en',
+        loaders: [
+          { namespace: 'home', locale: 'en', loader: loader(wide(0)) },
+          { namespace: 'home', locale: 'en', loader: loader(wide(5000)) },
+        ],
+      },
+    });
+
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(Object.keys(probe.translations.en.home as object)).toHaveLength(10000);
+  });
+
+  it('keeps a prototype-named key a loader adds to a shared namespace', async () => {
+    const collection = await derive({
+      probe: probeFactory(),
+      sanitizeLocales,
+      extract: null,
+      config: {
+        initLocale: 'en',
+        loaders: [
+          { namespace: 'home', locale: 'en', loader: loader({ x: '1', n: { x: '1' } }) },
+          { namespace: 'home', locale: 'en', loader: loader(JSON.parse('{ "__proto__": { "b": "2" }, "n": { "__proto__": { "c": "3" } } }')) },
+        ],
+      },
+    });
+
+    expect(collection.entries.map(({ key }) => key).sort()).toEqual(['home.__proto__.b', 'home.n.__proto__.c', 'home.n.x', 'home.x']);
+  });
+
+  it('merges two loaders without writing into what either returned', async () => {
+    const first = { a: '1', nested: { a: '1' } };
+    const second = { b: '2', nested: { b: '2' } };
+
+    await derive({
+      probe: probeFactory(),
+      sanitizeLocales,
+      extract: null,
+      config: {
+        initLocale: 'en',
+        loaders: [
+          { namespace: 'home', locale: 'en', loader: loader(first) },
+          { namespace: 'home', locale: 'en', loader: loader(second) },
+        ],
+      },
+    });
+
+    expect(first).toEqual({ a: '1', nested: { a: '1' } });
+    expect(second).toEqual({ b: '2', nested: { b: '2' } });
   });
 
   it('falls back through initLocale, fallbackLocale and the first locale named', async () => {
