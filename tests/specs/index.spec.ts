@@ -790,6 +790,20 @@ describe('derive', () => {
     expect(() => emit(collection.entries, collection.referenceLocale)).not.toThrow();
   });
 
+  it('collects what the extractor cannot read in bounded time, in key order', async () => {
+    const keys = Array.from({ length: 40000 }, (_, i) => `k${i}`);
+    const started = performance.now();
+    const collection = await derive({
+      probe: assigningProbe(),
+      sanitizeLocales,
+      extract: (() => [null]) as any,
+      config: { initLocale: 'en', translations: { en: Object.fromEntries(keys.map((key) => [key, 'v'])) } },
+    });
+
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(collection.diagnostics.map(({ message }) => message)).toEqual(keys.map((key) => `The extractor returned no parameter list for '${key}'.`));
+  });
+
   it('reports an empty catalogue instead of writing an empty schema silently', async () => {
     const collection = await derive({
       probe: probeFactory(),
