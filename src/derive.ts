@@ -490,7 +490,7 @@ export const derive = async ({
 
   const read = Object.keys(table).map(readOne);
   const entries = read.map(({ entry }) => entry);
-  const thrown = read.reduce<Diagnostic.T[]>((acc, { thrown: one }) => (one ? [...acc, one] : acc), []);
+  const thrown = read.flatMap(({ thrown: one }) => (one ? [one] : []));
 
   // A reference short of its own keys would report every other locale's as
   // extra.
