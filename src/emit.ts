@@ -82,12 +82,12 @@ const payloadOf = (params: readonly Parser.ParamSpec[], indent: string): string 
   // a message with several nested selectors would otherwise emit a union whose
   // size is the product of their branches, and the caller pays for it on every
   // keystroke.
-  const properties = params.reduce<string[]>((acc, param) => {
+  const properties = params.flatMap((param) => {
     const note = condition(param);
     const line = `${indent}  ${property(param.name, !!param.optional)}: ${typeOf(param)};`;
 
-    return [...acc, ...(note ? [`${indent}  /** ${note} */`] : []), line];
-  }, []);
+    return [...(note ? [`${indent}  /** ${note} */`] : []), line];
+  });
 
   return `{\n${properties.join('\n')}\n${indent}}`;
 };
@@ -150,11 +150,11 @@ export const emit = (entries: readonly Entry[], referenceLocale: string, skipped
   const sorted = [...entries].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   const keys = new Set(sorted.map(({ key }) => key));
 
-  const members = sorted.reduce<string[]>((acc, entry) => {
+  const members = sorted.flatMap((entry) => {
     const note = describe(entry.value);
 
-    return [...acc, ...(note ? [`  /** ${note} */`] : []), `  ${quote(entry.key)}: ${valueOf(entry, '  ')};`];
-  }, []);
+    return [...(note ? [`  /** ${note} */`] : []), `  ${quote(entry.key)}: ${valueOf(entry, '  ')};`];
+  });
 
   // A pattern member keeps the schema closed: every other key still narrows,
   // and a key the reference did deliver keeps its own payload.
