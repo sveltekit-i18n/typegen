@@ -14,6 +14,8 @@ const run = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TYPING = resolve(HERE, '../fixtures/typing');
 const SCHEMA = resolve(TYPING, 'schema.d.ts');
+// A second artifact in the same program, as a second app config would write.
+const SECOND = resolve(TYPING, 'second.d.ts');
 // The compiler's own entry, run by Node. The `node_modules/.bin` shim is an
 // extensionless shell script on Windows, which `execFile` cannot spawn at all.
 const TSC = resolve(HERE, '../../node_modules/typescript/bin/tsc');
@@ -70,7 +72,7 @@ const SCHEMA_ENTRIES: Entry[] = [
   entry('keys.only', 'Hi {{name}}', null),
 ];
 
-afterAll(() => rm(SCHEMA, { force: true }));
+afterAll(() => Promise.all([rm(SCHEMA, { force: true }), rm(SECOND, { force: true })]));
 
 const errorsIn = (output: string, file: string): string[] => (
   output.split('\n').filter((line) => line.includes(`${file}(`) && /\(\d+,\d+\): error TS/.test(line))
@@ -182,6 +184,47 @@ describe('the registration, compiled against a 3.1 core', () => {
     await writeFile(SCHEMA, emit(SCHEMA_ENTRIES, 'en').contents, 'utf8');
 
     expect(await compile('registry/check.js')).toBe('');
+  });
+
+  const ODD = ['__proto__.a', 'constructor', 'toString.b', 'a..b', 'list.0', "it's\nodd", 'a`b${c}', 'post.title', '.cms.title'].map((key) => entry(key, 'x'));
+  const TREE = emit([...SCHEMA_ENTRIES, ...ODD], 'en', [
+    { namespace: 'post', whole: false },
+    { namespace: 'q`${r}\\', whole: false },
+    { namespace: 'legacy', whole: true },
+    { namespace: '.cms', whole: false },
+  ]).contents;
+
+  it('registers a tree of exactly the keys it types', async () => {
+    await writeFile(SCHEMA, TREE, 'utf8');
+
+    expect(await compile('registry/tree.ts', 'registry/paths.ts')).toBe('');
+  });
+
+  it('registers an empty tree before the first generation', async () => {
+    await writeFile(SCHEMA, placeholder(), 'utf8');
+
+    // Its key set is the empty schema's, and the one assertion that fails is
+    // that the tree names a key.
+    const output = await compile('registry/tree.ts', 'registry/paths.ts');
+
+    expect(errorsIn(output, 'tree.ts')).toEqual([]);
+    expect(errorsIn(output, 'paths.ts')).toEqual([expect.stringContaining("error TS2322: Type 'false' is not assignable to type 'true'.")]);
+  });
+
+  // The levels of each artifact are its own, whichever registration wins:
+  // levels merged by name would name keys of the other one at paths of this one.
+  it.each([
+    ['a larger', TREE, emit(SCHEMA_ENTRIES, 'en').contents],
+    ['a smaller', emit(SCHEMA_ENTRIES, 'en').contents, TREE],
+  ])('keeps the levels apart beside %s artifact', async (_, first, second) => {
+    await writeFile(SCHEMA, first, 'utf8');
+    await writeFile(SECOND, second, 'utf8');
+
+    const output = await compile(SECOND, 'registry/paths.ts');
+
+    expect(errorsIn(output, 'paths.ts')).toEqual([]);
+    // Both name the one global `TranslationSchema`, so only the trees conflict.
+    expect(errorsIn(output, 'second.d.ts')).toEqual([expect.stringContaining("error TS2717: Subsequent property declarations must have the same type.  Property 'tree'")]);
   });
 
   it('reports a second registration of another schema', async () => {

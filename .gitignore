@@ -8,6 +8,7 @@
 # spec compiles against the published types.
 tests/fixtures/app/src/i18n-schema.d.ts
 tests/fixtures/typing/schema.d.ts
+tests/fixtures/typing/second.d.ts
 
 .env
 .vscode

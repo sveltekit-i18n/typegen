@@ -273,6 +273,37 @@ describe('emit', () => {
       'declare namespace SvelteKitI18n {',
       '  interface Register {',
       '    schema: TranslationSchema;',
+      '    tree: {',
+      '      keys:',
+      "        | 'about'",
+      "        | 'cart.items'",
+      "        | 'data'",
+      "        | 'greeting'",
+      "        | 'it\\'s\\nodd'",
+      "        | 'nav.home'",
+      "        | 'legacy';",
+      '      patterns:',
+      '        | `remote.${string}`;',
+      '      next: Typegen.Kea84f811.Level0;',
+      '    };',
+      '  }',
+      '  namespace Typegen.Kea84f811 {',
+      '    interface Level0 {',
+      "      'about': { key: 'about' };",
+      "      'cart': { next: Level1 };",
+      "      'data': { key: 'data' };",
+      "      'greeting': { key: 'greeting' };",
+      "      'it\\'s\\nodd': { key: 'it\\'s\\nodd' };",
+      "      'legacy': { key: 'legacy' };",
+      "      'nav': { next: Level2 };",
+      "      'remote': { open: true };",
+      '    }',
+      '    interface Level1 {',
+      "      'items': { key: 'cart.items' };",
+      '    }',
+      '    interface Level2 {',
+      "      'home': { key: 'nav.home' };",
+      '    }',
       '  }',
       '}',
       '',
@@ -319,11 +350,19 @@ describe('emit', () => {
   });
 
   // A 3.1 core types a config without a `schema` by this registration; 3.0
-  // ignores it. It is fixed text, so it keeps the bytes stable.
-  const REGISTER = [
+  // ignores it. With no keys it is fixed text, so it keeps the bytes stable.
+  const REGISTER_EMPTY = [
     'declare namespace SvelteKitI18n {',
     '  interface Register {',
     '    schema: TranslationSchema;',
+    '    tree: {',
+    '      keys: never;',
+    '      patterns: never;',
+    '      next: Typegen.K811c9dc5.Level0;',
+    '    };',
+    '  }',
+    '  namespace Typegen.K811c9dc5 {',
+    '    interface Level0 {}',
     '  }',
     '}',
     '',
@@ -332,8 +371,30 @@ describe('emit', () => {
   it('registers the schema after the interface', () => {
     const { contents } = emit([entry('b', '1'), entry('a', '2')], 'en');
 
-    expect(contents.endsWith(`\n}\n\n${REGISTER}`)).toBe(true);
-    expect(contents.split(REGISTER)).toHaveLength(2);
+    expect(contents.endsWith([
+      '}',
+      '',
+      'declare namespace SvelteKitI18n {',
+      '  interface Register {',
+      '    schema: TranslationSchema;',
+      '    tree: {',
+      '      keys:',
+      "        | 'a'",
+      "        | 'b';",
+      '      patterns: never;',
+      '      next: Typegen.Kcf272368.Level0;',
+      '    };',
+      '  }',
+      '  namespace Typegen.Kcf272368 {',
+      '    interface Level0 {',
+      "      'a': { key: 'a' };",
+      "      'b': { key: 'b' };",
+      '    }',
+      '  }',
+      '}',
+      '',
+    ].join('\n'))).toBe(true);
+    expect(contents.split('declare namespace SvelteKitI18n')).toHaveLength(2);
   });
 
   it('registers the empty placeholder, which differs from an empty artifact only by the locale line', () => {
@@ -342,9 +403,143 @@ describe('emit', () => {
       '',
       'interface TranslationSchema {}',
       '',
-      REGISTER,
+      REGISTER_EMPTY,
     ].join('\n'));
     expect(emit([], 'en').contents).toBe(placeholder().replace('\n\n', '\n// Reference locale: en\n\n'));
+  });
+
+  describe('the tree', () => {
+    const levels = (contents: string) => contents.slice(contents.indexOf('    interface Level0'));
+
+    it('nests every key by segment, a key on its own path and segments below it', () => {
+      expect(levels(emit([entry('a', 'x'), entry('a.b', 'x'), entry('a..b', 'x'), entry('list.0', 'x'), entry('deep.a.b', 'x')], 'en').contents)).toBe([
+        '    interface Level0 {',
+        "      'a': { key: 'a'; next: Level1 };",
+        "      'deep': { next: Level3 };",
+        "      'list': { next: Level5 };",
+        '    }',
+        '    interface Level1 {',
+        "      '': { next: Level2 };",
+        "      'b': { key: 'a.b' };",
+        '    }',
+        '    interface Level2 {',
+        "      'b': { key: 'a..b' };",
+        '    }',
+        '    interface Level3 {',
+        "      'a': { next: Level4 };",
+        '    }',
+        '    interface Level4 {',
+        "      'b': { key: 'deep.a.b' };",
+        '    }',
+        '    interface Level5 {',
+        "      '0': { key: 'list.0' };",
+        '    }',
+        '  }',
+        '}',
+        '',
+      ].join('\n'));
+    });
+
+    it('keeps a segment named after a prototype member a segment', () => {
+      const { contents } = emit(['__proto__.a', 'constructor.b', 'toString', 'x.hasOwnProperty', 'then.c'].map((key) => entry(key, 'x')), 'en');
+
+      expect(levels(contents)).toBe([
+        '    interface Level0 {',
+        "      '__proto__': { next: Level1 };",
+        "      'constructor': { next: Level2 };",
+        "      'then': { next: Level3 };",
+        "      'toString': { key: 'toString' };",
+        "      'x': { next: Level4 };",
+        '    }',
+        '    interface Level1 {',
+        "      'a': { key: '__proto__.a' };",
+        '    }',
+        '    interface Level2 {',
+        "      'b': { key: 'constructor.b' };",
+        '    }',
+        '    interface Level3 {',
+        "      'c': { key: 'then.c' };",
+        '    }',
+        '    interface Level4 {',
+        "      'hasOwnProperty': { key: 'x.hasOwnProperty' };",
+        '    }',
+        '  }',
+        '}',
+        '',
+      ].join('\n'));
+    });
+
+    it('opens a namespace that was not read, every node below it a key', () => {
+      const { contents } = emit([entry('cms.title', 'x'), entry('cms.page.body', 'x')], 'en', [
+        { namespace: 'cms', whole: false },
+        { namespace: 'blog.post', whole: false },
+        { namespace: 'post', whole: true },
+      ]);
+
+      expect(contents).toContain([
+        '      keys:',
+        "        | 'cms.page.body'",
+        "        | 'cms.title'",
+        "        | 'post';",
+        '      patterns:',
+        '        | `blog.post.${string}`',
+        '        | `cms.${string}`;',
+      ].join('\n'));
+      expect(levels(contents)).toBe([
+        '    interface Level0 {',
+        "      'blog': { next: Level1 };",
+        "      'cms': { open: true; next: Level2 };",
+        "      'post': { key: 'post' };",
+        '    }',
+        '    interface Level1 {',
+        "      'post': { open: true };",
+        '    }',
+        '    interface Level2 {',
+        "      'page': { key: 'cms.page'; next: Level3 };",
+        "      'title': { key: 'cms.title' };",
+        '    }',
+        '    interface Level3 {',
+        "      'body': { key: 'cms.page.body' };",
+        '    }',
+        '  }',
+        '}',
+        '',
+      ].join('\n'));
+    });
+
+    it('keeps an empty first segment in a key below an open namespace', () => {
+      const { contents } = emit([entry('.cms.title', 'x')], 'en', [{ namespace: '.cms', whole: false }]);
+
+      expect(levels(contents)).toContain("      'title': { key: '.cms.title' };");
+    });
+
+    it('sorts the segments by code unit, as the keys are', () => {
+      const { contents } = emit(['b', 'B', 'a', '\u00e9', 'Z'].map((key) => entry(key, 'x')), 'en');
+
+      expect(levels(contents).split('\n').slice(1, 6)).toEqual([
+        "      'B': { key: 'B' };",
+        "      'Z': { key: 'Z' };",
+        "      'a': { key: 'a' };",
+        "      'b': { key: 'b' };",
+        "      '\u00e9': { key: '\u00e9' };",
+      ]);
+    });
+
+    it('nests a key of many segments', () => {
+      const deep = Array.from({ length: 10000 }, (_, i) => `s${i}`).join('.');
+      const { contents } = emit([entry(deep, 'x')], 'en', [{ namespace: `${deep}.open`, whole: false }]);
+
+      expect(contents).toContain(`'s9999': { key: '${deep}'; next: Level10000 };`);
+      expect(contents).toContain("'open': { open: true };");
+    });
+
+    it('writes the same tree whatever the order', () => {
+      const keys = ['n.b', 'n.a', 'm', 'n.c.d'];
+      const skipped = [{ namespace: 'o', whole: false }, { namespace: 'p.q', whole: false }];
+
+      expect(emit(keys.map((key) => entry(key, 'x')), 'en', skipped).contents)
+        .toBe(emit([...keys].reverse().map((key) => entry(key, 'x')), 'en', [...skipped].reverse()).contents);
+    });
   });
 
   it('carries no top-level import or export', () => {
