@@ -77,7 +77,7 @@ const i18n = new I18n({ ...config, schema: /** @type {TranslationSchema} */ ({})
 
 On a core that reads the registration the slot still wins when a config states it: an instance with a catalogue of its own states its own schema, and `schema: {}` opts an instance out, back to plain `string` keys.
 
-The registration covers the whole program, so only the app registers. A library never ships one: a second registration of another schema is a type error (TS2717) when declaration files are checked, and is silently ignored under the `skipLibCheck: true` SvelteKit sets.
+The registration covers the whole program, so only the app registers. A library never ships one: a second registration of another schema is a type error (TS2717) when declaration files are checked, and is silently ignored under the `skipLibCheck: true` SvelteKit sets. The same holds for two generated files in one program (two apps under one `tsconfig`): their schemas merge and the first file's `tree` wins, its levels its own: the typed-access extension reads them only where their key set is the merged schema's, and groups the keys itself otherwise.
 
 > **Upgrading** the core from 3.0 to 3.1: the registration the generated file already carries starts to apply, so it types every instance that states no `schema`, a second instance or a test's included. Give such an instance its own schema, or `schema: {}`.
 
@@ -162,11 +162,36 @@ interface TranslationSchema {
 declare namespace SvelteKitI18n {
   interface Register {
     schema: TranslationSchema;
+    tree: {
+      keys:
+        | 'home.bullets.0'
+        | 'home.choice'
+        | 'home.count'
+        | 'home.greeting';
+      patterns: never;
+      next: Typegen.K011b2d95.Level0;
+    };
+  }
+  namespace Typegen.K011b2d95 {
+    interface Level0 {
+      'home': { next: Level1 };
+    }
+    interface Level1 {
+      'bullets': { next: Level2 };
+      'choice': { key: 'home.choice' };
+      'count': { key: 'home.count' };
+      'greeting': { key: 'home.greeting' };
+    }
+    interface Level2 {
+      '0': { key: 'home.bullets.0' };
+    }
   }
 }
 ```
 
 `never` is how the core spells a message that takes no payload. A key whose message the extractor could not read is typed `any`, so it narrows the key and leaves the payload alone. The reference text rides along as a doc comment, which is what a completion popup shows.
+
+`tree` is the same keys nested by segment, for [`@sveltekit-i18n/extension-typed-access`](https://github.com/sveltekit-i18n/extensions/tree/master/extension-typed-access#cost), which would otherwise group them itself on every compile — seconds of `tsc` on a catalogue of ten thousand keys in one namespace. The core reads none of it. `keys` and `patterns` are the literal keys and the patterns of a namespace that was not read, the key set the levels were built from; the extension reads the levels only while that is exactly the schema's, so a key you declare yourself next to the generated ones is never lost, only grouped the slow way. The levels live in a namespace named after that key set, so those of another generated file never mix in. An app without the extension pays for parsing the levels: on ten thousand keys, about 0.1 to 0.3 s and 20 to 80 MB more per `tsc` run, growing with the number of distinct key prefixes.
 
 The same file also carries the placeholder — an empty `interface TranslationSchema {}`, registered the same way — written before anything that can fail. An empty interface is not a schema as far as the core is concerned, so keys degrade to plain `string` and the project compiles; it also merges cleanly when the real artifact arrives, and with any key you declare yourself in a `.d.ts` of your own.
 

@@ -206,12 +206,30 @@ Issues for this repo live in the `lib` tracker.
   `export`, ever.** One turns it into a module and the global vanishes, with an
   error that points at the consumer rather than at the artifact. External types
   go in as inline `import('…')`. It holds `interface TranslationSchema` and,
-  after it, a fixed block registering it —
-  `declare namespace SvelteKitI18n { interface Register { schema: TranslationSchema } }`
+  after it, a block registering it —
+  `declare namespace SvelteKitI18n { interface Register { schema: TranslationSchema; tree: … } }`
   — which base and `sveltekit-i18n` 3.1 read for every config that states no
-  `schema`, and which 3.0 ignores; the placeholder carries the same block. The
-  interface keeps its global name, so the cast (`schema: {} as
-  TranslationSchema`) still types a 3.0 core and still overrides per instance.
+  `schema`, and which 3.0 ignores; the placeholder carries the same block,
+  with an empty tree. The interface keeps its global name, so the cast
+  (`schema: {} as TranslationSchema`) still types a 3.0 core and still
+  overrides per instance.
+- **`tree` is a contract with `extension-typed-access`**, which the core never
+  reads. It holds `keys`, the literal keys, and `patterns`, the template keys
+  of the namespaces that were not read — apart, since `keyof` drops a literal
+  a pattern matches, and with it a key the app declares under an open
+  namespace — and `next`, the root of `SvelteKitI18n.Typegen.K<hash>.Level*`
+  interfaces: one per level, a member per segment (split on every dot, sorted
+  by code unit, numbered in preorder), each `{ key?, open?, next? }` — `key`
+  on a key and on every node below an open namespace, `open: true` on a
+  namespace that was not read. The namespace is named by an FNV-1a hash of
+  `keys` and `patterns`, so the levels of two artifacts in one program never
+  merge by name. The extension reads the levels only while `keys` and
+  `patterns` are exactly its schema's, and groups the keys itself otherwise.
+  The segments are consumer data, so the levels are built from `Map`s, and
+  without recursion, since a key can hold thousands of segments. A change of
+  this shape is a change of the extension's input: its
+  `tests/types/tree/schema.d.ts` is this package's output, pasted, and is
+  regenerated in the same release plan.
 - **`emit` is pure and byte-stable.** Keys are sorted, so an unchanged
   catalogue produces unchanged bytes and `writeIfChanged` skips the write. That
   is not an optimization: the artifact lands inside the tree the dev server
