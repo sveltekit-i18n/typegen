@@ -76,9 +76,12 @@ Issues for this repo live in the `lib` tracker.
 | `tests/specs/index.spec.ts` | `emit` and `derive`, in-process |
 | `tests/specs/plugin.spec.ts` | real `vite build` and dev server over the fixture app |
 | `tests/specs/typing.spec.ts` | compiles the emitted artifact against the published types |
+| `tests/specs/bench.spec.ts` | how the benchmark reads a row against the base (`bench/compare.ts`) |
 | `tests/fixtures/run.js` | runs the SHIPPED plugin over a fixture, per case, in its own process |
 | `tests/fixtures/app/` | a real SvelteKit app (adapter-node), several configs as several exports; it declares its dependencies, as the app's own server needs them declared to compile the core |
 | `tests/fixtures/typing/` | `ok.ts` / `bad.ts` / `degrades.ts` / `skipped.ts` — deliberately broken TypeScript, excluded from `tsconfig` and from ESLint, typed by the cast on a 3.0 core; `registry/` holds the cases a 3.1 core types by the registration |
+| `bench/` | the benchmark: `run.ts` builds each tree's source with esbuild and runs it, one process per project and sample, and `compare.ts` reads each row against the base; `counts.ts`, `times.ts`, `cold.ts`, `generate.ts` (both through `build.ts`) and `dev.ts` measure its rows, `app/` is the SvelteKit app the last three run the plugin in |
+| `BENCH.md` | the benchmark of the last release, written into its release commit by `publish.yml` |
 
 ## Architecture you must respect
 
@@ -260,6 +263,8 @@ Issues for this repo live in the `lib` tracker.
   cast (`sveltekit-i18n-3.0`, an aliased `sveltekit-i18n@3.0.0` with its own
   base, which ignores the registration, so only the cast types those cases)
   and against the 3.1 cores through the registration.
+- A fourth, `bench.spec.ts`, pins how the benchmark reads a row against its
+  base (`bench/compare.ts`).
 - **`typing.spec.ts` runs `tsc` at `skipLibCheck: false`.** Two regression
   classes — an artifact that is a `type` alias, and a key a user redeclares
   differently — are invisible at the `skipLibCheck: true` every SvelteKit app
@@ -276,3 +281,42 @@ Issues for this repo live in the `lib` tracker.
 - Fixture apps and the typing subjects are excluded from `tsconfig.json` and
   from ESLint. Both are deliberate — one is an app with a config of its own, the
   other is TypeScript that is SUPPOSED to fail to compile.
+
+## Benchmark
+
+`npm run bench` measures this tree, and `npm run bench -- --compare <dir>`
+measures it against the package checked out at `<dir>`, as `bench.yml` does
+on every pull request that touches what it measures, against its base. It
+reads rows as base's benchmark does (base's §4): a project of the branch
+that fails fails the job; a count that grew, a row of the base the branch
+lacks or a project of the base that failed fails it unless the pull request
+carries the `bench-accepted` label (`bench-label.yml` re-runs the job when the
+label changes); and a size that
+grew, a time beyond its spread by 5% or more and heap that grew beyond its
+spread are flagged for review. `publish.yml` writes `BENCH.md` into the
+release commit.
+
+- **Each side runs its own source on one install.** `run.ts` bundles each
+  tree's `src` with esbuild into `bench/out/lib/<side>`, dependencies left
+  external, so `emit`, which the package does not export, is measured too, and
+  a difference between the sides is the source's.
+- **Counts:** the calls a generation makes, the config loads of a build's
+  generation, and what the artifact costs the checker of an app calling `t`
+  with it registered, read off the installed `sveltekit-i18n`. The artifact is
+  checked as a source file, so its own declarations count, the tree's levels
+  included, which the core never reads. The probe proves the schema narrows by
+  a missing payload, never by a key the schema lacks: the core rejects such a
+  key at a cost that grows faster than the schema.
+- **Times:** `derive` and `emit` in process, against a stand-in of the core
+  (base's `toDotNotation` behind `addTranslations`), since the core's rune
+  modules need a compiler; a build's generation, the plugin's own
+  `buildStart`, each in a process of its own, on an empty pre-bundle cache
+  and on the one an earlier generation left; a dev regeneration after a
+  catalogue change, on a server in middleware mode, which waits for a key each
+  change adds and assumes of the artifact only that it names the dotted key. A flat catalogue is a `config.translations`
+  seed, the other shapes a loader per namespace and locale.
+- **The app's runs stay at 1,000 keys.** A generation applies the catalogue
+  through the installed core, whose cost grows with the keys it holds.
+- **A project that waits fails by a deadline** (`within`), and the jobs carry
+  a `timeout-minutes`, so a change that never lets one finish fails the run
+  instead of holding a pull request or a release.

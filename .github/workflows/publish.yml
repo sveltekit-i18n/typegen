@@ -21,6 +21,8 @@ jobs:
   publish-npm:
     needs: tests
     runs-on: ubuntu-latest
+    # The benchmark of the release runs in here.
+    timeout-minutes: 60
     permissions:
       contents: read
       id-token: write
@@ -73,12 +75,18 @@ jobs:
             while printf '%s' "$USED" | node -e 'process.exit(process.argv[1] in JSON.parse(require("fs").readFileSync(0, "utf8")) ? 0 : 1)' "$VERSION"; do
               VERSION="${VERSION%.*}.$(( ${VERSION##*.} + 1 ))"
             done
-            TAG="$(npm version "$VERSION" | tail -n 1)"
+            TAG="$(npm version "$VERSION" --no-git-tag-version | tail -n 1)"
             DIST_TAG=next
           else
-            TAG="$(npm version '${{ inputs.version }}' | tail -n 1)"
+            TAG="$(npm version '${{ inputs.version }}' --no-git-tag-version | tail -n 1)"
             DIST_TAG=latest
           fi
+          # The release commit carries the benchmark of the version it
+          # releases; commit and tag are written as `npm version` writes them.
+          npm run bench -- --write
+          git add package.json package-lock.json BENCH.md
+          git commit -m "${TAG#v}"
+          git tag -a "$TAG" -m "${TAG#v}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "dist-tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
 
