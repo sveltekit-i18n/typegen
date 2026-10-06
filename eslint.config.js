@@ -8,7 +8,7 @@ export default tseslint.config(
   // Build outputs, the fixture apps' own trees, and the type-check subjects,
   // which are deliberately broken TypeScript; node_modules is ignored by
   // default.
-  { ignores: ['**/dist/', '**/build/', '**/.svelte-kit/', 'tests/fixtures/**/node_modules/', 'tests/fixtures/typing/'] },
+  { ignores: ['**/dist/', '**/build/', '**/.svelte-kit/', 'tests/fixtures/**/node_modules/', 'tests/fixtures/typing/', 'bench/out/', 'bench/app/node_modules/', 'bench/app/src/cases/'] },
   js.configs.recommended,
   tseslint.configs.recommendedTypeChecked,
   {
@@ -48,6 +48,7 @@ export default tseslint.config(
           '**/*.config.ts',
           '**/*.config.js',
           'tests/**',
+          'bench/**',
         ],
       }],
     },
@@ -77,7 +78,7 @@ export default tseslint.config(
   {
     // Fixture loaders are async by base's Loader contract with nothing to
     // await, and a fixture deliberately throws to exercise a diagnostic.
-    files: ['tests/**'],
+    files: ['tests/**', 'bench/**'],
     rules: {
       '@typescript-eslint/require-await': 'off',
       '@typescript-eslint/only-throw-error': 'off',

@@ -13,12 +13,13 @@
   },
   "scripts": {
     "dev": "tsup --watch",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p bench",
     "pretest": "npm run build && npm run typecheck",
     "test": "vitest run",
     "build": "tsup",
     "prepublishOnly": "npm run build",
     "lint": "eslint --fix .",
+    "bench": "node bench/run.ts",
     "prepare": "simple-git-hooks"
   },
   "files": [
