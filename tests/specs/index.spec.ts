@@ -766,6 +766,40 @@ describe('derive', () => {
     expect(Object.keys(probe.translations.en.home as object)).toHaveLength(10000);
   });
 
+  it('batches many namespaces of a locale in bounded time', async () => {
+    const probe = assigningProbe();
+    const started = performance.now();
+
+    await derive({
+      probe,
+      sanitizeLocales,
+      extract: null,
+      config: {
+        initLocale: 'en',
+        loaders: Array.from({ length: 5000 }, (_, i) => ({ namespace: `ns${i}`, locale: 'en', loader: loader({ k: 'v' }) })),
+      },
+    });
+
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(Object.keys(probe.translations.en)).toHaveLength(5000);
+  });
+
+  it('batches a namespace named after a prototype member as its own', async () => {
+    const probe = assigningProbe();
+
+    await derive({
+      probe,
+      sanitizeLocales,
+      extract: null,
+      config: {
+        initLocale: 'en',
+        loaders: ['__proto__', 'toString'].map((namespace) => ({ namespace, locale: 'en', loader: loader({ k: 'v' }) })),
+      },
+    });
+
+    expect(Object.keys(probe.translations.en).sort()).toEqual(['__proto__', 'toString']);
+  });
+
   it('keeps a prototype-named key a loader adds to a shared namespace', async () => {
     const collection = await derive({
       probe: probeFactory(),
