@@ -433,15 +433,21 @@ export const derive = async ({
   // call, so a custom one that only looks at the leaf it is given sees exactly
   // what the app gives it; one whose output depends on the siblings in the
   // batch is grouping dependent, and no grouping reproduces every route an app
-  // can take.
-  const batchOf = (locale: string): Record<string, unknown> => loaded.reduce<Record<string, unknown>>((acc, { descriptor, data }) => {
-    if (!data || descriptor.locale !== locale) return acc;
+  // can take. A batch is written in place, as rebuilding it per loader is
+  // quadratic, into a null-prototype object spread once on the way out, so a
+  // namespace named '__proto__' stays an own key.
+  const batchOf = (locale: string): Record<string, unknown> => ({
+    ...loaded.reduce<Record<string, unknown>>((acc, { descriptor, data }) => {
+      if (!data || descriptor.locale !== locale) return acc;
 
-    // Keyed as the core keys it, which spells an absent 3.0 `key` 'undefined'.
-    const name = descriptor.namespace as string;
+      // Keyed as the core keys it, which spells an absent 3.0 `key` 'undefined'.
+      const name = descriptor.namespace as string;
 
-    return { ...acc, [name]: Object.hasOwn(acc, name) ? merge(acc[name], data) : data };
-  }, {});
+      acc[name] = Object.hasOwn(acc, name) ? merge(acc[name], data) : data;
+
+      return acc;
+    }, Object.create(null)),
+  });
 
   const apply = (locale: string): void => {
     const batch = batchOf(locale);
