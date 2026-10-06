@@ -38,3 +38,22 @@ jobs:
         run: npm run test
         env:
           tests: true
+
+  Lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install Dependencies
+        run: npm ci
+
+      # Without `--fix`, which `npm run lint` passes: a finding fails the job.
+      - name: Lint
+        run: npx eslint .
