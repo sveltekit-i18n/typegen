@@ -1400,6 +1400,25 @@ describe('derive', () => {
       expect(collection.diagnostics[0].message).toContain('/app/node_modules/@sveltekit-i18n/base/dist/index.js');
     });
 
+    it('reads many loaders in bounded time', async () => {
+      const probe = assigningProbe();
+      const started = performance.now();
+
+      await derive({
+        probe,
+        sanitizeLocales,
+        resolveLoaders: undefined,
+        extract: null,
+        config: {
+          initLocale: 'en',
+          loaders: Array.from({ length: 20000 }, (_, i) => ({ key: `ns${i}`, locale: 'en', loader: loader({ k: 'v' }) })),
+        },
+      });
+
+      expect(performance.now() - started).toBeLessThan(1000);
+      expect(Object.keys(probe.translations.en)).toHaveLength(20000);
+    });
+
     it('sanitizes a loader\'s locale once, as 3.1 loads it', async () => {
       // 3.0 sanitizes the requested locale a second time, so under a custom
       // `sanitizeLocales` that changes its own output it never runs this
