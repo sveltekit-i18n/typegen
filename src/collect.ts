@@ -251,6 +251,10 @@ export const collect = async ({ options, resolved }: CollectInput): Promise<Coll
         environment.close().catch(() => {}),
         new Promise((closed) => { setTimeout(closed, CLOSE_TIMEOUT).unref(); }),
       ]);
+      // Vite's native resolver keeps a closed environment alive, and with it
+      // the code it transformed, which every generation of a dev server would
+      // otherwise add to.
+      environment.moduleGraph.invalidateAll();
     }
   });
 };
