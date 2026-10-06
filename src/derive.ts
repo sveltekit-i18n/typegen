@@ -127,15 +127,15 @@ const merge = (target: unknown, source: unknown): unknown => {
 // lands under 'undefined'. Loader properties are consumer code and an accessor
 // may throw, so each descriptor is materialized on its own.
 const readLoaders = (input: readonly unknown[] = [], sanitize: (locale: string) => string): Loader[] => (
-  input.reduce<Loader[]>((acc, descriptor) => {
+  input.flatMap((descriptor) => {
     try {
       const { key, locale, routes, loader } = descriptor as Descriptor;
 
-      return locale ? [...acc, { namespace: key, locale: sanitize(locale), routes, loader }] : acc;
+      return locale ? [{ namespace: key, locale: sanitize(locale), routes, loader }] : [];
     } catch {
-      return acc;
+      return [];
     }
-  }, [])
+  })
 );
 
 // A descriptor only a 3.1 core reads: a 3.0 one files a `namespace` under
