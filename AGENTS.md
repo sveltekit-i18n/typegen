@@ -125,7 +125,9 @@ Issues for this repo live in the `lib` tracker.
   a plain Svelte app without a `svelte.config.js` is told so, at `info`, on
   every generation. Closing the environment waits for every request still open, so it is
   given a few seconds, and a failure to close never hides why it failed to
-  start.
+  start. Vite's native resolver keeps a closed environment alive, so its
+  module graph is invalidated once it closes, or a dev server would keep what
+  every generation transformed.
 - **A dev server generates once its own optimizers have loaded.** Vite clears
   the stale pre-bundling directories of the first cache a process loads, so
   the app's cache has to be that one. Vite loads them the moment the client's
