@@ -33,7 +33,7 @@ const entry = (key: string, value: unknown, params: Entry['params'] = []): Entry
 // The default normalization, standing in for the core's published helper.
 const sanitizeLocales = (...locales: unknown[]): string[] => locales.map(String);
 
-// The core the suite installs is 3.1, so its `resolveLoaders` reads the
+// The core the suite installs is 3.3, so its `resolveLoaders` reads the
 // loaders and its `matchLocale` settles the reference, unless a spec takes the
 // 3.0 path by leaving them out.
 const derive = (input: DeriveInput) => deriveWith({ resolveLoaders: resolveLoaders as DeriveInput['resolveLoaders'], matchLocale, ...input });
