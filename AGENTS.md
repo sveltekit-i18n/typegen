@@ -274,10 +274,10 @@ Issues for this repo live in the `lib` tracker.
 - **Every case in `plugin.spec.ts` spawns its own process.** Kit's plugins keep
   module-level state, and the plugin's work happens inside a nested pipeline of
   exactly those plugins — two builds in one process would not be independent.
-- The suite runs against base 3.1, which the fixture app resolves too. The 3.0
-  path — no `resolveLoaders` in the core's `/utils` — is covered in process, by
-  calling `derive` without it; the aliased 3.0 core serves `typing.spec.ts`'s
-  cast cases only.
+- The suite runs against base 3.3, and the fixture app against the base its
+  `sveltekit-i18n` pins. The 3.0 path — no `resolveLoaders` in the core's
+  `/utils` — is covered in process, by calling `derive` without it; the
+  aliased 3.0 core serves `typing.spec.ts`'s cast cases only.
 - Vitest sets `fileParallelism: false` and a two-minute timeout: a spec starts
   real Vite pipelines.
 - Fixture apps and the typing subjects are excluded from `tsconfig.json` and
