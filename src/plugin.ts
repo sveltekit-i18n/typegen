@@ -54,9 +54,9 @@ const explain = (cause: unknown, traced: boolean): string => {
 // and clears its entry instead.
 const generated = new WeakSet<ResolvedConfig>();
 
-// The artifacts a build is generating. SvelteKit builds its client inside the
-// server build, from the config file loaded again, so a second instance of the
-// plugin starts while the first one's build is still open. Held on the global
+// The artifacts a build is generating. SvelteKit 2 builds its client inside
+// the server build, from the config file loaded again, so a second instance of
+// the plugin starts while the first one's build is still open. Held on the global
 // because loading the config file again can load this module again too.
 const REGISTRY = Symbol.for('sveltekit-i18n-typegen:building');
 

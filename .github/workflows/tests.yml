@@ -39,6 +39,42 @@ jobs:
         env:
           tests: true
 
+  # The install above is SvelteKit 2's; the plugin's own suite runs on
+  # SvelteKit 3 as well, on Linux and on Windows, where SvelteKit 3 reads its
+  # paths off the Vite root. SvelteKit 3 asks for TypeScript 6 once one is
+  # installed, so it comes along, after the build.
+  Kit-3:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Install SvelteKit 3
+        run: npm install --no-save @sveltejs/kit@^3.0.0 @sveltejs/adapter-node@^6.0.0 typescript@^6.0.0
+
+      - name: Name the SvelteKit
+        run: node -p "require('./node_modules/@sveltejs/kit/package.json').version"
+
+      - name: Test
+        run: npx vitest run tests/specs/plugin.spec.ts
+        env:
+          tests: true
+
   Lint:
     runs-on: ubuntu-latest
 

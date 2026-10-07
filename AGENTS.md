@@ -39,7 +39,11 @@ flat config, Node 22+. The peer is `vite`; `sveltekit-i18n`,
 `@sveltekit-i18n/base` and `@sveltejs/kit` are OPTIONAL peers — an app brings
 one of the two cores, and a required peer on base would install a second copy
 next to the one `sveltekit-i18n` depends on. The plugin works in a plain Vite
-app, and Kit's plugins are simply picked up when the app has them.
+app, and Kit's plugins are simply picked up when the app has them. The Kit
+range is `^2.53.0 || ^3.0.0`: 2.53 is the first SvelteKit 2 to accept Vite 8,
+the required peer. SvelteKit 3 takes its options inline, in `sveltekit({...})`,
+and rejects a `svelte.config.js`; SvelteKit 2 reads a `svelte.config.js`, and
+from 2.62 inline options too.
 
 The base range is `^3.0.0 || ^3.1.0-next.0`: `sveltekit-i18n` 3.0 pins base
 3.0.0 exactly, so an app on it has no 3.1 core to offer. The loaders are read
@@ -78,7 +82,8 @@ Issues for this repo live in the `lib` tracker.
 | `tests/specs/typing.spec.ts` | compiles the emitted artifact against the published types |
 | `tests/specs/bench.spec.ts` | how the benchmark reads a row against the base (`bench/compare.ts`) |
 | `tests/fixtures/run.js` | runs the SHIPPED plugin over a fixture, per case, in its own process |
-| `tests/fixtures/app/` | a real SvelteKit app (adapter-node), several configs as several exports; it declares its dependencies, as the app's own server needs them declared to compile the core |
+| `tests/fixtures/app/` | a real SvelteKit app (adapter-node), several configs as several exports, in the form both majors read (SvelteKit 2 from 2.63): Kit's options inline in `vite.config.js`, no `svelte.config.js`, `#lib` as a subpath import, `$app/env`; it declares its dependencies, as the app's own server needs them declared to compile the core |
+| `tests/fixtures/classic/` | a SvelteKit 2 app in the form every SvelteKit 2 reads, and the only one before 2.62: its options in `svelte.config.js`, `$lib`, `$app/environment`; one case builds it, from its config file and from a bare inline `sveltekit()`, and is skipped on SvelteKit 3 |
 | `tests/fixtures/typing/` | `ok.ts` / `bad.ts` / `degrades.ts` / `skipped.ts` — deliberately broken TypeScript, excluded from `tsconfig` and from ESLint, typed by the cast on a 3.0 core; `registry/` holds the cases a 3.1 core types by the registration |
 | `bench/` | the benchmark: `run.ts` builds each tree's source with esbuild and runs it, one process per project and sample, and `compare.ts` reads each row against the base; `counts.ts`, `times.ts`, `cold.ts`, `generate.ts` (both through `build.ts`) and `dev.ts` measure its rows, `app/` is the SvelteKit app the last three run the plugin in |
 | `BENCH.md` | the benchmark of the last release, written into its release commit by `publish.yml` |
@@ -176,8 +181,11 @@ Issues for this repo live in the `lib` tracker.
   reuse `resolved.plugins`.** Kit's plugins share one closure; re-running
   their `configResolved` for the nested config overwrites the config the outer
   build later reads, the adapter never runs, and the build still exits zero.
-  A config file supplies its own; a programmatic build without one gets a
-  fresh copy.
+  A config file supplies its own, with the options it passes Kit; a
+  programmatic build without one gets a fresh copy, without the options it
+  passed inline: SvelteKit 2 reads `svelte.config.js` again, SvelteKit 3 runs
+  on its defaults. The options Kit validated are not handed back to it:
+  validating them again warns of every deprecated option at its default.
 - **The probe is built from the core the config runs on.** The collector
   watches the config's imports resolve and asks for the core afterwards, from
   a virtual module: base as `sveltekit-i18n` resolves it when the config
@@ -185,17 +193,23 @@ Issues for this repo live in the `lib` tracker.
   root, `sveltekit-i18n` first, when it imports neither. The app root need not
   resolve base at all (pnpm), and a stray root copy of another version must
   not type the app.
-- **One build collects once.** SvelteKit builds its client inside the server
-  build, from the config file loaded again, so a second instance of the plugin
-  starts while the first build is open. The artifact being generated is held
-  in a registry on `globalThis` (the module itself can load twice) from
-  `buildStart` until the claiming build's `closeBundle` (ordered `pre`, so
-  another plugin's failing one cannot skip it), its `buildEnd` with an error or
-  its watcher's next change, so the next build — a watcher's round, a
+- **One build collects once.** SvelteKit 2 builds its client inside the
+  server build, from the config file loaded again, so a second instance of the
+  plugin starts while the first build is open. SvelteKit 3 builds both
+  environments from one resolved config, one after the other, which the
+  `generated` set keyed by that config answers. The artifact being generated
+  is held in a registry on `globalThis` (the module itself can load twice)
+  from `buildStart` until the claiming build's `closeBundle` (ordered `pre`, so
+  another plugin's failing one cannot skip it), its `buildEnd` with an error
+  or its watcher's next change, so the next build — a watcher's round, a
   programmatic one — generates again.
-- **`NODE_ENV` is the build's.** Vite states it before any hook runs and
-  never overrides one that is set, so the nested config reads the build's:
-  `dev` is `false` in a production build, as in the app's own server bundle.
+- **`NODE_ENV` is the build's, and so is `dev`.** Vite states `NODE_ENV`
+  before any hook runs and never overrides one that is set, so the nested
+  config reads the build's, and SvelteKit 2's `dev` follows it. SvelteKit 3's
+  `dev` is the command its config was resolved for, which is `serve` here, so
+  under a build the nested config states its define, `__SVELTEKIT_DEV__`, as
+  `false` in a `config` hook ordered after Kit's: `dev` is `false` in a
+  production build, as in the app's own server bundle.
 - **Never derive through `loadTranslations`.** `fetchTranslations` swallows a
   throwing loader by contract, which would turn one broken loader into a
   silently truncated schema. The loaders are called here, each against a
@@ -274,6 +288,17 @@ Issues for this repo live in the `lib` tracker.
 - **Every case in `plugin.spec.ts` spawns its own process.** Kit's plugins keep
   module-level state, and the plugin's work happens inside a nested pipeline of
   exactly those plugins — two builds in one process would not be independent.
+  A build runs as `vite build` runs it, through `createBuilder(…, null)` and
+  `buildApp()`: SvelteKit 3 builds its environments from `buildApp`, which
+  `build()` never calls.
+- **`plugin.spec.ts` runs on both Kit majors.** The lockfile installs
+  SvelteKit 2; the `Kit-3` job of `tests.yml` installs SvelteKit 3 over it,
+  with TypeScript 6, which SvelteKit 3 asks for once one is installed, after
+  the build, and runs that spec alone. Locally: `npm run build`, then
+  `npm install --no-save @sveltejs/kit@^3.0.0 @sveltejs/adapter-node@^6.0.0 typescript@^6.0.0`
+  and `npx vitest run tests/specs/plugin.spec.ts`; `npm ci` puts SvelteKit 2
+  back. The case over `tests/fixtures/classic/` reads the installed SvelteKit's
+  major and runs on SvelteKit 2 only.
 - The suite runs against base 3.3, and the fixture app against the base its
   `sveltekit-i18n` pins. The 3.0 path — no `resolveLoaders` in the core's
   `/utils` — is covered in process, by calling `derive` without it; the

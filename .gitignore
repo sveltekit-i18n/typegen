@@ -4,9 +4,10 @@
 /lib
 /types
 
-# What the fixture app generates when a spec builds it, and the artifact a
+# What the fixture apps generate when a spec builds them, and the artifact a
 # spec compiles against the published types.
 tests/fixtures/app/src/i18n-schema.d.ts
+tests/fixtures/classic/src/i18n-schema.d.ts
 tests/fixtures/typing/schema.d.ts
 tests/fixtures/typing/second.d.ts
 
