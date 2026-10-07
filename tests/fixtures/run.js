@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 
-import { build, createServer } from 'vite';
+import { createBuilder, createServer } from 'vite';
 
 import typegen from '../../dist/index.js';
 
@@ -10,9 +10,9 @@ import typegen from '../../dist/index.js';
 // process are not independent — and the plugin's whole job happens inside a
 // nested pipeline of exactly those plugins. A spec therefore spawns this
 // script per case and reads the result off the filesystem and this output.
-const { mode, root, configFile, vite = {}, listen = false, restart = false, close = false, neighbours: named = [], ...options } = JSON.parse(process.argv[2]);
+const { mode, root, configFile, inlineKit = false, vite = {}, listen = false, restart = false, close = false, neighbours: named = [], ...options } = JSON.parse(process.argv[2]);
 
-// SvelteKit reads `svelte.config.js` and the app template off the working
+// SvelteKit 2 reads `svelte.config.js` and the app template off the working
 // directory rather than off Vite's root, so the app has to be entered the way
 // its own scripts enter it.
 process.chdir(root);
@@ -39,7 +39,21 @@ const neighbours = {
   counted: { name: 'counted', buildStart() { if (this.environment?.name === 'client') console.log('client started'); } },
 };
 
-const plugins = configFile ? [] : [typegen(options), ...named.map((name) => neighbours[name])];
+// A programmatic build that reads no config file and passes SvelteKit inline,
+// with its options or, as `'bare'`, without any, which SvelteKit 2 then reads
+// from `svelte.config.js`. Imported once the app is entered: SvelteKit 2 reads
+// the working directory as its module loads.
+const inlined = async () => {
+  const [{ default: adapter }, { sveltekit }] = await Promise.all([import('@sveltejs/adapter-node'), import('@sveltejs/kit/vite')]);
+
+  return inlineKit === 'bare' ? sveltekit() : sveltekit({ adapter: adapter(), version: { name: 'fixture' } });
+};
+
+const kit = inlineKit ? [await inlined()] : [];
+
+const plugins = configFile ? [] : [...kit, typegen(options), ...named.map((name) => neighbours[name])];
+
+const file = inlineKit ? { configFile: false } : configFile ? { configFile: resolve(root, configFile) } : {};
 
 if (mode === 'serve') {
   // Behind a framework's own server by default; `listen` starts Vite's.
@@ -72,7 +86,11 @@ if (mode === 'serve') {
 } else {
   const { fetch } = globalThis;
 
-  await build({ ...vite, root, plugins, logLevel: 'warn', ...(configFile ? { configFile: resolve(root, configFile) } : {}) });
+  // What `vite build` runs: SvelteKit 3 builds its environments from the
+  // builder's `buildApp`, which `build()` never calls.
+  const builder = await createBuilder({ ...vite, root, plugins, logLevel: 'warn', ...file }, null);
+
+  await builder.buildApp();
 
   // Nothing of the collection is left behind in the process that built.
   if (globalThis.fetch !== fetch) console.log('fetch was replaced');

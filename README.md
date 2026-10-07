@@ -8,13 +8,13 @@ It runs on `vite build` and regenerates while `vite dev` is running. There is no
 
 ## How it derives the keys
 
-**By running your config, not by globbing your files.** `config.preprocess` decides the shape of the keys that reach `translations`, a `namespace` prefixes its data at load time, and a loader is ordinary JavaScript — one that imports a template literal names no file anything static could read. So the plugin evaluates the config module in your app's own server environment, the one `vite dev` renders pages with (`$lib`, `$env`, every alias, your plugins, `--mode` and your `ssr` options apply), calls the loaders, and reads the keys back off the core your app would have built. A config that `vite dev` can run, the plugin can read, with nothing to configure.
+**By running your config, not by globbing your files.** `config.preprocess` decides the shape of the keys that reach `translations`, a `namespace` prefixes its data at load time, and a loader is ordinary JavaScript — one that imports a template literal names no file anything static could read. So the plugin evaluates the config module in your app's own server environment, the one `vite dev` renders pages with (`$app/*`, `$env`, `#lib` or `$lib`, every alias, your plugins, `--mode` and your `ssr` options apply), calls the loaders, and reads the keys back off the core your app would have built. A config that `vite dev` can run, the plugin can read, with nothing to configure.
 
 Payloads come from the other half: the parser's build-time `extractParams`, which reports what a given message text accepts.
 
 ## Requirements
 
-`sveltekit-i18n` or `@sveltekit-i18n/base` 3.0 or newer (3.0 names a loader's namespace `key`; `namespace`, and a loader that lists several locales or namespaces, need 3.1), Vite 8, and Node 22+. The keys are read off the copy of the core your config runs on: the one `sveltekit-i18n` brings when the config imports that, the one it imports otherwise. SvelteKit is optional — its plugins are picked up when the app has them, which is what makes `$lib`, `$env` and `$app/environment` resolve.
+`sveltekit-i18n` or `@sveltekit-i18n/base` 3.0 or newer (3.0 names a loader's namespace `key`; `namespace`, and a loader that lists several locales or namespaces, need 3.1), Vite 8, and Node 22+. The keys are read off the copy of the core your config runs on: the one `sveltekit-i18n` brings when the config imports that, the one it imports otherwise. SvelteKit is optional, 2.53 or newer (the first SvelteKit 2 to accept Vite 8) or 3 — its plugins are picked up when the app has them, which is what makes `$app/*`, `$env` and, on SvelteKit 2, `$lib` resolve.
 
 ## Installation
 
@@ -93,7 +93,7 @@ It is reproducible from your translation files, so committing it only buys merge
 
 ### `config` (required)
 
-The module holding the config object, relative to the Vite root. An alias works too (`$lib/i18n.js`).
+The module holding the config object, relative to the Vite root. A subpath import or an alias works too (`#lib/i18n.js`, or `$lib/i18n.js` on SvelteKit 2).
 
 ### `configExport`
 
@@ -124,7 +124,7 @@ The locale whose catalogue defines the key set. Defaults to the config's `initLo
 
 ### `outFile`
 
-Where to write, relative to the Vite root. Defaults to `src/i18n-schema.d.ts`. It has to sit under `src/` — that is the only place SvelteKit's generated `tsconfig.json` picks a `.d.ts` up without the app being edited, and `.svelte-kit` is wiped by `svelte-kit sync`.
+Where to write, relative to the Vite root. Defaults to `src/i18n-schema.d.ts`. It has to sit under `src/` — that is the only place a SvelteKit app's TypeScript program picks a `.d.ts` up without the app being edited (SvelteKit 2's generated `tsconfig.json` includes it, and SvelteKit 3's recommended one does), and `.svelte-kit` is wiped by `svelte-kit sync`.
 
 ### `checkLocales`
 
@@ -225,9 +225,9 @@ A loader that never settles is treated as one that threw, after thirty seconds; 
 - **A namespace whose loader cannot run outside the app is open.** A loader backed by a remote `query`, or one whose `routes` capture params, has nothing to load at build time; its namespace is typed as any key under it (``[key: `post.${string}`]: any``, or `'post': any` under `preprocess: 'none'`), and every other key still narrows. Its keys do not autocomplete, its payloads are not checked, and a key union that spans one of them takes any payload. On a 3.1 core, a loader whose `routes` capture params is skipped whatever it throws, since a build has no params to hand it; a 3.0 core hands a loader no params at all. Under a custom `preprocess` no key shape can be guessed, so such a loader fails the generation as `loader-threw`, as any other throw does.
 - **Route scoping is bypassed.** Every loader runs, so the schema covers every route, and each is handed its own first `routes` entry (or `/` when the entry is a pattern) and empty `params`. A loader that derives its *keys* from the route it is given cannot be typed by any single choice.
 - **A grouping-dependent `preprocess` is out of contract.** The loaders are applied in one batch, as a single visit to every route would have produced. A custom `preprocess` that looks only at the leaf it is handed sees exactly what your app hands it; one whose output depends on the sibling namespaces in the same batch is decided by how the batch was grouped, and no grouping reproduces every route an app can take.
-- **The config is evaluated as `vite dev` would, during a build too.** A config file that refuses to load outside a build, or a config module that throws under `vite dev`, is reported as `config-unreadable`; the build still succeeds and the previous schema stands. Plugins passed only inline to a programmatic `build()` are not applied to the evaluation — the ones in your config file are, and SvelteKit's always is.
-- **`vite dev` regenerates on a change to the config or to a file a generation reached, and only while Vite's watcher follows that file.** It follows what lies under the root, from the start, on a default dev server. A file outside the root (a linked workspace package) is followed once a generation names it, and so is every file on a bundled dev server (Vite's `experimental.bundledDev`), whose watcher leaves the root to its bundler; there a watch can also be lost to a branch switch that removes a directory and brings it back. A file no generation reached yet (a catalogue created after a loader failed to find it, a config missing when the dev server starts that does not lie under the root on a default dev server, or one named by an alias such as `$lib/i18n.js`) is not followed either. When the schema lags, save the config; when that does not help, restart the dev server.
-- **JavaScript apps need `// @ts-check`** (or `checkJs`) for `tsc` to report anything — SvelteKit's generated config allows JavaScript without checking it.
+- **The config is evaluated as `vite dev` would, during a build too.** A config file that refuses to load outside a build, or a config module that throws under `vite dev`, is reported as `config-unreadable`; the build still succeeds and the previous schema stands. Plugins passed only inline to a programmatic build are not applied to the evaluation — the ones in your config file are, and SvelteKit's always is. SvelteKit's options are read where your config file passes them (or, on SvelteKit 2, from `svelte.config.js`); a programmatic build that passes `sveltekit({...})` only inline evaluates the config on SvelteKit's defaults.
+- **`vite dev` regenerates on a change to the config or to a file a generation reached, and only while Vite's watcher follows that file.** It follows what lies under the root, from the start, on a default dev server. A file outside the root (a linked workspace package) is followed once a generation names it, and so is every file on a bundled dev server (Vite's `experimental.bundledDev`), whose watcher leaves the root to its bundler; there a watch can also be lost to a branch switch that removes a directory and brings it back. A file no generation reached yet (a catalogue created after a loader failed to find it, a config missing when the dev server starts that does not lie under the root on a default dev server, or one named by a subpath import or an alias such as `#lib/i18n.js`) is not followed either. When the schema lags, save the config; when that does not help, restart the dev server.
+- **A JavaScript app's types are reported only where JavaScript is checked.** SvelteKit 3's generated `$app/tsconfig` sets `allowJs` and `checkJs`, so its files are checked unless the app turns that off; SvelteKit 2's generated config sets neither, so the app's own `tsconfig.json` or `jsconfig.json` decides, and without `checkJs` a file needs `// @ts-check`.
 
 ## Related packages
 

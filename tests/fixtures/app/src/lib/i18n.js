@@ -1,7 +1,7 @@
-import { dev } from '$app/environment';
+import { dev } from '$app/env';
 
-import en from '$lib/translations/en.json';
-import cs from '$lib/translations/cs.json';
+import en from '#lib/translations/en.json';
+import cs from '#lib/translations/cs.json';
 
 // A dynamic template-literal import, the shape a real app uses: nothing static
 // can tell which files it reaches, which is why the generator evaluates it.

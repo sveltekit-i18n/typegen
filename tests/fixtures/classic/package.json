@@ -1,0 +1,9 @@
+{
+  "name": "typegen-fixture-classic",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "dependencies": {
+    "sveltekit-i18n": "*"
+  }
+}

@@ -1,5 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { access, mkdir, mkdtemp, readFile, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +18,11 @@ const ARTIFACT = resolve(APP, 'src/i18n-schema.d.ts');
 const CATALOGUE = resolve(APP, 'src/lib/translations/home/en.json');
 
 const CONFIG = { root: APP, config: 'src/lib/i18n.js' };
+
+// SvelteKit 2's own form: its options in `svelte.config.js`, `$lib` and
+// `$app/environment`, all of which SvelteKit 3 removed.
+const CLASSIC = resolve(HERE, '../fixtures/classic');
+const KIT_MAJOR = Number(JSON.parse(readFileSync(createRequire(import.meta.url).resolve('@sveltejs/kit/package.json'), 'utf8')).version.split('.')[0]);
 
 const LINKED = resolve(HERE, '../fixtures/linked');
 const MODULES = resolve(APP, 'node_modules');
@@ -134,6 +141,48 @@ describe('a production build', () => {
     expect(await artifact()).toContain('/** in production */');
   });
 
+  it('reads a config named by one of the app\'s subpath imports', async () => {
+    // `#lib` is where SvelteKit 3 sends what `$lib` named.
+    const output = await build({ config: '#lib/i18n.js' });
+
+    expect(output).not.toContain('[config-unreadable]');
+    expect(await artifact()).toContain("'home.title': any;");
+  });
+
+  it('reads the config of a build that passes SvelteKit inline, and leaves the build\'s output alone', async () => {
+    // No config file to load again: the nested config gets a SvelteKit of
+    // its own, while the build's runs its adapter.
+    await rm(resolve(APP, 'build'), { recursive: true, force: true });
+    const output = await build({ inlineKit: true });
+
+    expect(output).not.toContain('[config-unreadable]');
+    expect(await artifact()).toContain("'home.title': any;");
+    expect(await readFile(resolve(APP, 'build/index.js'), 'utf8')).toBeTruthy();
+  });
+
+  it.skipIf(KIT_MAJOR !== 2)('reads an app in SvelteKit 2\'s own form, from its config file and from a bare inline SvelteKit', async () => {
+    const schema = resolve(CLASSIC, 'src/i18n-schema.d.ts');
+
+    try {
+      for (const options of [{}, { inlineKit: 'bare' }]) {
+        await rm(schema, { force: true });
+        await rm(resolve(CLASSIC, 'build'), { recursive: true, force: true });
+        const output = await build({ root: CLASSIC, config: '$lib/i18n.js', ...options });
+
+        expect(output).not.toContain('[config-unreadable]');
+
+        const contents = await readFile(schema, 'utf8');
+
+        expect(contents).toContain("'home.title': any;");
+        expect(contents).toContain('/** in production */');
+        // The adapter `svelte.config.js` names ran.
+        expect(await readFile(resolve(CLASSIC, 'build/index.js'), 'utf8')).toBeTruthy();
+      }
+    } finally {
+      await rm(schema, { force: true });
+    }
+  });
+
   it('reads a config module that builds its instance from sveltekit-i18n', async () => {
     const output = await build({ config: 'src/lib/instance.js' });
 
@@ -231,8 +280,9 @@ describe('a production build', () => {
   });
 
   it('collects once per build of an app that carries it in its config file', async () => {
-    // SvelteKit loads the config file again for its client build, nested in
-    // the server build, which builds a second instance of the plugin.
+    // SvelteKit 2 loads the config file again for its client build, nested in
+    // the server build, which builds a second instance of the plugin;
+    // SvelteKit 3 builds both from one resolved config.
     const marks = resolve(await mkdtemp(resolve(tmpdir(), 'typegen-')), 'marks');
 
     try {

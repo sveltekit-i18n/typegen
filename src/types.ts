@@ -42,8 +42,8 @@ export namespace Options {
   export type T = {
     /**
      * The module holding the app's i18n config, relative to the Vite root. It
-     * is evaluated inside the app's own pipeline, so it may use `$lib`, `$env`
-     * and every alias the app resolves.
+     * is evaluated inside the app's own pipeline, so it may use `$app/*`,
+     * `$env`, the app's subpath imports (`#lib`) and every alias it resolves.
      */
     config: string;
     /** The export carrying the config object. Defaults to `config`. */
@@ -57,9 +57,9 @@ export namespace Options {
     referenceLocale?: string;
     /**
      * Where to write the declarations, relative to the Vite root. Defaults to
-     * `src/i18n-schema.d.ts`. Keep it under `src/`: that is where SvelteKit's
-     * generated `tsconfig.json` picks a `.d.ts` up. It is build output:
-     * gitignore it.
+     * `src/i18n-schema.d.ts`. Keep it under `src/`: that is where a SvelteKit
+     * app's `tsconfig.json` picks a `.d.ts` up, the one SvelteKit 2 generates
+     * and the one SvelteKit 3 recommends. It is build output: gitignore it.
      */
     outFile?: string;
     /**

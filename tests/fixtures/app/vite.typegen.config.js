@@ -1,3 +1,4 @@
+import adapter from '@sveltejs/adapter-node';
 import { sveltekit } from '@sveltejs/kit/vite';
 
 import typegen from '../../../dist/index.js';
@@ -18,11 +19,11 @@ const fixtures = {
   refuse: { name: 'refuse', apply: 'serve', options: () => { throw new Error('Refused while serving.'); } },
 };
 
-// The plugin where an app puts it: in the config file, which SvelteKit loads a
-// second time for its client build.
+// The plugin where an app puts it: in the config file, which SvelteKit 2 loads
+// a second time for its client build.
 export default {
   plugins: [
-    sveltekit(),
+    sveltekit({ adapter: adapter(), version: { name: 'fixture' } }),
     ...(process.env.TYPEGEN_FIXTURE ? [fixtures[process.env.TYPEGEN_FIXTURE]] : []),
     typegen(JSON.parse(process.env.TYPEGEN_OPTIONS)),
   ],

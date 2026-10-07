@@ -98,6 +98,11 @@ const hasKit = (plugins: readonly Plugin[]): boolean => plugins.some(({ name }) 
 /**
  * A fresh `sveltekit()`, for a nested config that lacks the Kit the outer one
  * has — a programmatic build without a config file, or with Kit passed inline.
+ * Options passed to the outer `sveltekit()` are not passed on: SvelteKit 2
+ * reads `svelte.config.js` again, and SvelteKit 3, which takes its options
+ * inline only, runs on its defaults. The options it validated cannot be
+ * handed back either: validating them again warns of every deprecated option
+ * at its default.
  *
  * Never the outer build's instances: SvelteKit's plugins share one closure,
  * and re-running their `configResolved` for the nested config overwrites the
@@ -110,6 +115,17 @@ const freshKit = async (): Promise<Plugin[]> => {
   return sveltekit();
 };
 
+/**
+ * A build's `dev`, for a nested config resolved for `serve`. SvelteKit 3's
+ * `dev` is the command its config was resolved for, stated through this
+ * define, and SvelteKit 2's reads `NODE_ENV`, which is already the build's.
+ * Last, so it overrides the define Kit's own `config` hook returns.
+ */
+const built: Plugin = {
+  name: 'sveltekit-i18n-typegen:built',
+  config: { order: 'post', handler: () => ({ define: { __SVELTEKIT_DEV__: 'false' } }) },
+};
+
 const toPosix = (path: string): string => path.split(sep).join('/');
 
 /**
@@ -117,8 +133,8 @@ const toPosix = (path: string): string => path.split(sep).join('/');
  *
  * A path is spelled relative to the Vite root, which is not a module specifier
  * — it has to become a root-relative id, with the separators Vite speaks. What
- * is not a path is handed through untouched, so an alias like `$lib/i18n.js`
- * reaches the app's own resolvers.
+ * is not a path is handed through untouched, so a subpath import like
+ * `#lib/i18n.js`, or an alias, reaches the app's own resolvers.
  */
 const configId = async (root: string, config: string): Promise<string> => {
   const path = isAbsolute(config) ? config : resolve(root, config);
@@ -205,7 +221,7 @@ export const collect = async ({ options, resolved }: CollectInput): Promise<Coll
     // level of a logger it shares with the app's, and the build's own warnings
     // would go quiet.
     customLogger: createLogger('silent'),
-    plugins: [serve(source), ...plugins],
+    plugins: [serve(source), ...plugins, ...(resolved.command === 'build' ? [built] : [])],
   }, 'serve');
 
   return withCacheDir(join(resolved.cacheDir, 'typegen'), async (cacheDir) => {
