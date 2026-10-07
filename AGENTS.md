@@ -60,8 +60,8 @@ because the package resolves module ids and writes paths.
 
 A release is planned with the rest of the family (base's §4, *Releases*):
 after `base` and the parsers, before `sveltekit-i18n`, whose examples run it.
-`README.md` is the npm page, so it describes the version being published, and
-each of its links resolves.
+`README.md` is the npm page, so it describes the version being published,
+leaves out nothing it or the family brings, and each of its links resolves.
 
 Issues for this repo live in the `lib` tracker.
 
