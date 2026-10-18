@@ -235,6 +235,7 @@ A loader that never settles is treated as one that threw, after thirty seconds; 
 - [@sveltekit-i18n/base](https://github.com/sveltekit-i18n/base) – The core this types
 - [Parsers](https://github.com/sveltekit-i18n/parsers) – Curly, ICU, MessageFormat 2, i18next and Fluent, each shipping the extractor this reads
 - [Extensions](https://github.com/sveltekit-i18n/extensions) – Official extensions for the `config.extensions` pipe
+- [@sveltekit-i18n/sv](https://github.com/sveltekit-i18n/sv) – The Svelte CLI add-on that sets sveltekit-i18n up in a SvelteKit project (`npx sv add @sveltekit-i18n`), this plugin included when you ask for it
 
 ## Contributing
 
