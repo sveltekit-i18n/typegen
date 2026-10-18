@@ -233,7 +233,7 @@ A loader that never settles is treated as one that threw, after thirty seconds; 
 
 - [sveltekit-i18n](https://github.com/sveltekit-i18n/lib) – Complete solution, with the Curly Message Format parser included
 - [@sveltekit-i18n/base](https://github.com/sveltekit-i18n/base) – The core this types
-- [Parsers](https://github.com/sveltekit-i18n/parsers) – Curly, ICU, MessageFormat 2 and i18next, each shipping the extractor this reads
+- [Parsers](https://github.com/sveltekit-i18n/parsers) – Curly, ICU, MessageFormat 2, i18next and Fluent, each shipping the extractor this reads
 - [Extensions](https://github.com/sveltekit-i18n/extensions) – Official extensions for the `config.extensions` pipe
 
 ## Contributing
